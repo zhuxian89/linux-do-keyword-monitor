@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "linux-do-monitor"
+dynamic = ["version"]
+description = "Monitor Linux.do RSS feed and notify users via Telegram bot when keywords match"
+authors = [
+    { name = "hongweizhang" }
+]
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "python-telegram-bot>=20.0",
+    "feedparser>=6.0",
+    "apscheduler>=3.10",
+    "pydantic>=2.0",
+    "click>=8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/hongweizhang/linux-do-monitor"
+Repository = "https://github.com/hongweizhang/linux-do-monitor"
+
+[project.scripts]
+linux-do-monitor = "linuxdo_monitor.__main__:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.dynamic]
+version = { attr = "linuxdo_monitor.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+extend-select = ["I", "B", "W", "C4"]
+ignore = ["E501", "B008", "C901"]
