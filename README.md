@@ -23,9 +23,13 @@
 | `/start` | 开始使用 | `/start` |
 | `/subscribe <关键词>` | 订阅关键词 | `/subscribe docker` |
 | `/unsubscribe <关键词>` | 取消订阅 | `/unsubscribe docker` |
+| `/list` | 查看我的关键词订阅 | `/list` |
+| `/subscribe_user <用户名>` | 订阅某用户的所有帖子 | `/subscribe_user neo` |
+| `/unsubscribe_user <用户名>` | 取消订阅用户 | `/unsubscribe_user neo` |
+| `/list_users` | 查看已订阅的用户 | `/list_users` |
 | `/subscribe_all` | 订阅所有新帖（慎用，消息量大） | `/subscribe_all` |
 | `/unsubscribe_all` | 取消订阅所有 | `/unsubscribe_all` |
-| `/list` | 查看我的订阅 | `/list` |
+| `/stats` | 查看关键词热度统计 | `/stats` |
 | `/help` | 帮助信息 | `/help` |
 
 ## 使用示例
@@ -37,11 +41,19 @@
 /subscribe 求助
 /subscribe homelab
 
+# 订阅某个用户的所有帖子
+/subscribe_user neo
+
 # 查看当前订阅
 /list
+/list_users
 
 # 取消某个订阅
 /unsubscribe docker
+/unsubscribe_user neo
+
+# 查看统计信息
+/stats
 ```
 
 ## 推送效果
@@ -66,7 +78,10 @@ Docker 容器部署最佳实践分享
 A: 不区分。订阅 `Docker` 和 `docker` 效果相同。
 
 **Q: 可以订阅多少个关键词？**
-A: 没有限制，但建议控制在合理范围内。
+A: 每位用户最多可订阅 5 个关键词和 5 个用户。如需更多，可使用 `/subscribe_all` 订阅所有帖子。
+
+**Q: 可以订阅某个用户的帖子吗？**
+A: 可以！使用 `/subscribe_user <用户名>` 订阅某个用户的所有帖子。
 
 **Q: 为什么没收到通知？**
 A: 可能是帖子标题没有包含你的关键词，或者该帖子已经推送过了（不会重复推送）。
@@ -84,11 +99,13 @@ A: 订阅所有新帖子，不管标题是什么都会推送。消息量较大�
 
 - 支持 RSS 和 Discourse API 两种数据源
 - 多用户订阅不同关键词
+- 支持订阅特定用户的所有帖子
 - 支持订阅所有新帖子
 - 关键词匹配不区分大小写
 - 防止重复推送
-- Web 配置管理页面
+- Web 配置管理页面（支持刷新缓存）
 - Cookie 失效自动降级 + 管理员告警
+- 关键词热度统计
 
 ## 安装
 从源码安装：
@@ -206,6 +223,7 @@ linux-do-monitor run         # 启动服务
 - 更新 Cookie
 - 设置管理员 Chat ID（接收系统告警）
 - 查看用户统计
+- 刷新缓存（清除所有缓存数据）
 
 ## 技术架构
 
@@ -227,6 +245,34 @@ linux-do-monitor run         # 启动服务
 - **Bot 框架**: python-telegram-bot
 - **数据库**: SQLite
 - **HTTP 客户端**: curl_cffi（绕过 Cloudflare）
+
+## TODO
+
+### 短期优化（提升体验）
+
+- [x] 订阅用户 - 订阅某个用户的所有帖子
+- [x] 关键词热度统计 - `/stats` 命令查看统计信息
+- [x] 刷新缓存 - Web 页面支持手动刷新缓存
+- [ ] 静默时段 - 用户可设置夜间不推送（如 23:00-8:00）
+- [ ] 消息合并 - 短时间内多条通知合并成一条，减少打扰
+- [ ] 正则匹配 - 支持正则表达式订阅，如 `docker.*部署`
+- [ ] 分类订阅 - 按 Linux.do 的分类（如"开发调优"、"资源荟萃"）订阅
+
+### 中期优化（提升稳定性）
+
+- [ ] 消息队列 - 引入 Redis 队列，解耦拉取和发送
+- [ ] 失败重试 - 发送失败的消息进入重试队列
+- [ ] 健康检查 - `/health` 端点，方便监控
+- [ ] 数据清理 - 定期清理过期的 posts 和 notifications 表
+- [ ] 多实例部署 - 支持多实例负载均衡
+- [ ] Docker 部署 - 提供 Dockerfile 和 docker-compose
+
+### 长期扩展（新功能）
+
+- [ ] 内容摘要 - 推送时附带帖子摘要
+- [ ] AI 智能推荐 - 根据用户历史点击推荐关键词
+- [ ] 多平台支持 - 支持其他 Discourse 论坛
+- [ ] Web 订阅管理 - 用户通过网页管理订阅，不只是 Bot
 
 ## License
 

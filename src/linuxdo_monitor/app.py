@@ -1,11 +1,12 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Set, Tuple
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from .bot.bot import TelegramBot, MESSAGE_INTERVAL
+from .bot.bot import TelegramBot
+from .cache import get_cache, AppCache
 from .config import AppConfig, ConfigManager, SourceType
 from .database import Database
 from .matcher.keyword import KeywordMatcher
@@ -23,6 +24,10 @@ logger = logging.getLogger(__name__)
 # Suppress noisy httpx logs
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
+
+# Batch sending configuration
+BATCH_SIZE = 25  # Number of messages to send concurrently
+BATCH_INTERVAL = 1.0  # Seconds between batches (Telegram rate limit ~30/sec)
 
 
 def create_source(config: AppConfig) -> BaseSource:
@@ -50,8 +55,9 @@ class Application:
         self.source = create_source(config)
         self.matcher = KeywordMatcher()
         self.scheduler = AsyncIOScheduler()
-        self._cookie_invalid_notified = False  # Track if we've notified admin about invalid cookie
-        self._using_fallback = False  # Track if we're using RSS fallback
+        self.cache = get_cache()
+        self._cookie_invalid_notified = False
+        self._using_fallback = False
 
     def reload_config(self):
         """Hot reload configuration"""
@@ -70,6 +76,8 @@ class Application:
         # Reset cookie invalid state on config reload
         self._cookie_invalid_notified = False
         self._using_fallback = False
+        # Invalidate cache on config change
+        self.cache.clear_all()
         logger.info(f"🔄 配置已热更新，数据源: {self.source.get_source_name()}")
 
     async def _notify_admin(self, message: str) -> None:
@@ -99,6 +107,90 @@ class Application:
         """Create RSS fallback source"""
         return RSSSource(url=self.config.rss_url)
 
+    def _get_keywords_cached(self) -> List[str]:
+        """Get keywords with caching"""
+        cached = self.cache.get_keywords()
+        if cached is not None:
+            return cached
+        keywords = self.db.get_all_keywords()
+        self.cache.set_keywords(keywords)
+        return keywords
+
+    def _get_subscribe_all_users_cached(self) -> List[int]:
+        """Get subscribe_all users with caching"""
+        cached = self.cache.get_subscribe_all_users()
+        if cached is not None:
+            return cached
+        users = self.db.get_all_subscribe_all_users()
+        self.cache.set_subscribe_all_users(users)
+        return users
+
+    def _get_subscribers_cached(self, keyword: str) -> List[int]:
+        """Get subscribers for a keyword with caching"""
+        cached = self.cache.get_subscribers(keyword)
+        if cached is not None:
+            return cached
+        subscribers = self.db.get_subscribers_by_keyword(keyword)
+        self.cache.set_subscribers(keyword, subscribers)
+        return subscribers
+
+    def _get_subscribed_authors_cached(self) -> List[str]:
+        """Get subscribed authors with caching"""
+        cached = self.cache.get_authors()
+        if cached is not None:
+            return cached
+        authors = self.db.get_all_subscribed_authors()
+        self.cache.set_authors(authors)
+        return authors
+
+    def _get_author_subscribers_cached(self, author: str) -> List[int]:
+        """Get subscribers for an author with caching"""
+        cached = self.cache.get_author_subscribers(author)
+        if cached is not None:
+            return cached
+        subscribers = self.db.get_subscribers_by_author(author)
+        self.cache.set_author_subscribers(author, subscribers)
+        return subscribers
+
+    async def _send_batch(self, tasks: List[Tuple]) -> int:
+        """Send a batch of notifications concurrently.
+
+        Args:
+            tasks: List of (chat_id, post, keyword_or_none) tuples
+
+        Returns:
+            Number of successfully sent notifications
+        """
+        if not tasks:
+            return 0
+
+        async def send_one(chat_id: int, post: Post, keyword: Optional[str]) -> bool:
+            try:
+                if keyword:
+                    success = await self.bot.send_notification(
+                        chat_id, post.title, post.link, keyword
+                    )
+                else:
+                    success = await self.bot.send_notification_all(
+                        chat_id, post.title, post.link
+                    )
+                if success:
+                    # Record notification in DB
+                    self.db.add_notification(chat_id, post.id, keyword or "__ALL__")
+                return success
+            except Exception as e:
+                logger.error(f"发送失败 {chat_id}: {e}")
+                return False
+
+        # Execute batch concurrently
+        results = await asyncio.gather(
+            *[send_one(chat_id, post, keyword) for chat_id, post, keyword in tasks],
+            return_exceptions=True
+        )
+
+        success_count = sum(1 for r in results if r is True)
+        return success_count
+
     async def fetch_and_notify(self) -> None:
         """Fetch posts and send notifications"""
         try:
@@ -106,7 +198,6 @@ class Application:
             source_to_use = self.source
             if self.config.source_type == SourceType.DISCOURSE:
                 if not self._check_cookie_valid():
-                    # Cookie invalid, fallback to RSS
                     if not self._cookie_invalid_notified:
                         logger.warning("⚠️ Cookie 已失效，降级使用 RSS 源")
                         await self._notify_admin(
@@ -119,7 +210,6 @@ class Application:
                     source_to_use = self._fallback_to_rss()
                     self._using_fallback = True
                 else:
-                    # Cookie is valid again
                     if self._using_fallback:
                         logger.info("✅ Cookie 已恢复有效，切换回 Discourse 源")
                         await self._notify_admin("✅ Cookie 已恢复有效，已切换回 Discourse 源")
@@ -130,11 +220,14 @@ class Application:
             logger.info(f"📡 开始拉取数据 ({source_to_use.get_source_name()})...")
             posts = source_to_use.fetch()
 
-            keywords = self.db.get_all_keywords()
-            subscribe_all_users = self.db.get_all_subscribe_all_users()
+            # Use cached data
+            keywords = self._get_keywords_cached()
+            subscribe_all_users = self._get_subscribe_all_users_cached()
+            subscribe_all_set: Set[int] = set(subscribe_all_users)
+            subscribed_authors = self._get_subscribed_authors_cached()
 
             new_posts = []
-            notifications_sent = 0
+            pending_tasks: List[Tuple] = []  # (chat_id, post, keyword_or_none)
 
             for post in posts:
                 # Skip if post already processed
@@ -142,51 +235,76 @@ class Application:
                     continue
 
                 new_posts.append(post)
-                # Add post to database
                 self.db.add_post(post)
 
-                # Notify subscribe_all users
+                # Track users already notified for this post (in this cycle)
+                notified_users: Set[int] = set()
+
+                # Collect subscribe_all notifications
                 for chat_id in subscribe_all_users:
-                    if self.db.notification_exists_for_all(chat_id, post.id):
+                    # Check DB for existing notification
+                    if self.db.notification_exists_for_post(chat_id, post.id):
+                        notified_users.add(chat_id)
                         continue
+                    pending_tasks.append((chat_id, post, None))
+                    notified_users.add(chat_id)
 
-                    success = await self.bot.send_notification_all(
-                        chat_id, post.title, post.link
-                    )
+                # Collect author-based notifications
+                if post.author and subscribed_authors:
+                    author_lower = post.author.lower()
+                    if author_lower in [a.lower() for a in subscribed_authors]:
+                        subscribers = self._get_author_subscribers_cached(author_lower)
+                        for chat_id in subscribers:
+                            # Skip if already notified
+                            if chat_id in notified_users:
+                                continue
+                            if chat_id in subscribe_all_set:
+                                continue
+                            if self.db.notification_exists_for_post(chat_id, post.id):
+                                notified_users.add(chat_id)
+                                continue
+                            # Use special keyword format for author subscription
+                            pending_tasks.append((chat_id, post, f"@{post.author}"))
+                            notified_users.add(chat_id)
 
-                    if success:
-                        self.db.add_notification(chat_id, post.id, "__ALL__")
-                        logger.info(f"  📤 推送给 {chat_id} (全部订阅): {post.title[:30]}...")
-                        notifications_sent += 1
-                        await asyncio.sleep(MESSAGE_INTERVAL)
-
-                # Find matching keywords and notify
+                # Collect keyword-based notifications
                 if keywords:
                     matched_keywords = self.matcher.find_matching_keywords(post, keywords)
 
                     for keyword in matched_keywords:
-                        subscribers = self.db.get_subscribers_by_keyword(keyword)
+                        subscribers = self._get_subscribers_cached(keyword)
 
                         for chat_id in subscribers:
-                            # Skip if user is subscribe_all (already notified)
-                            if chat_id in subscribe_all_users:
+                            # Skip if already notified (subscribe_all or another keyword)
+                            if chat_id in notified_users:
+                                continue
+                            # Skip if already in subscribe_all
+                            if chat_id in subscribe_all_set:
+                                continue
+                            # Check DB for existing notification for this post
+                            if self.db.notification_exists_for_post(chat_id, post.id):
+                                notified_users.add(chat_id)
                                 continue
 
-                            if self.db.notification_exists(chat_id, post.id, keyword):
-                                continue
+                            pending_tasks.append((chat_id, post, keyword))
+                            notified_users.add(chat_id)
 
-                            success = await self.bot.send_notification(
-                                chat_id, post.title, post.link, keyword
-                            )
+            # Send notifications in batches
+            total_sent = 0
+            for i in range(0, len(pending_tasks), BATCH_SIZE):
+                batch = pending_tasks[i:i + BATCH_SIZE]
+                sent = await self._send_batch(batch)
+                total_sent += sent
 
-                            if success:
-                                self.db.add_notification(chat_id, post.id, keyword)
-                                logger.info(f"  📤 推送给 {chat_id} (关键词:{keyword}): {post.title[:30]}...")
-                                notifications_sent += 1
-                                await asyncio.sleep(MESSAGE_INTERVAL)
+                if sent > 0:
+                    logger.info(f"  📤 批量发送 {sent}/{len(batch)} 条")
+
+                # Rate limit between batches
+                if i + BATCH_SIZE < len(pending_tasks):
+                    await asyncio.sleep(BATCH_INTERVAL)
 
             # Summary log
-            logger.info(f"✅ 拉取完成: 共 {len(posts)} 条, 新增 {len(new_posts)} 条, 推送 {notifications_sent} 条通知")
+            logger.info(f"✅ 拉取完成: 共 {len(posts)} 条, 新增 {len(new_posts)} 条, 推送 {total_sent} 条通知")
 
         except Exception as e:
             logger.error(f"❌ 数据拉取失败: {e}")

@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import parse_qs, urlparse
 
+from .cache import get_cache
+
 logger = logging.getLogger(__name__)
 
 
@@ -115,6 +117,17 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
             self._send_response(200, json.dumps(result, ensure_ascii=False), "application/json")
             return
 
+        # Clear cache endpoint
+        if path == "/api/cache/clear":
+            try:
+                cache = get_cache()
+                cache.clear_all()
+                result = {"success": True, "message": "缓存已清除"}
+            except Exception as e:
+                result = {"success": False, "error": str(e)}
+            self._send_response(200, json.dumps(result, ensure_ascii=False), "application/json")
+            return
+
         # Users page
         if path == "/users":
             self._serve_users_page()
@@ -156,6 +169,9 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         数据源: {config.get('source_type', 'rss')}<br>
         Cookie: {cookie_display}<br><br>
         <a href="/users?pwd={self.password}">📊 查看用户统计</a>
+        &nbsp;|&nbsp;
+        <a href="#" onclick="clearCache(); return false;">🔄 刷新缓存</a>
+        <div id="cache-result" style="margin-top: 10px; display: none;"></div>
     </div>
 
     <form method="POST" action="?pwd={self.password}">
@@ -227,22 +243,61 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
                 resultDiv.innerHTML = '❌ 测试失败: ' + e.message;
             }}
         }}
+
+        async function clearCache() {{
+            const resultDiv = document.getElementById('cache-result');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'warning';
+            resultDiv.innerHTML = '正在清除缓存...';
+
+            try {{
+                const response = await fetch('/api/cache/clear?pwd={self.password}');
+                const data = await response.json();
+
+                if (data.success) {{
+                    resultDiv.className = 'success';
+                    resultDiv.innerHTML = '✅ ' + data.message;
+                }} else {{
+                    resultDiv.className = 'error';
+                    resultDiv.innerHTML = '❌ ' + data.error;
+                }}
+            }} catch (e) {{
+                resultDiv.className = 'error';
+                resultDiv.innerHTML = '❌ 清除失败: ' + e.message;
+            }}
+
+            // Auto hide after 3 seconds
+            setTimeout(() => {{
+                resultDiv.style.display = 'none';
+            }}, 3000);
+        }}
     </script>
 </body>
 </html>"""
         self._send_response(200, html)
 
     def _serve_users_page(self):
-        """Serve users management page"""
+        """Serve users management page with pagination"""
         # Load database
         if not self.db_path or not self.db_path.exists():
             self._send_response(500, "数据库未配置或不存在")
             return
 
+        # Get page parameter
+        query = urlparse(self.path).query
+        params = parse_qs(query)
+        page = int(params.get("page", ["1"])[0])
+        page_size = 20
+
         from .database import Database
         db = Database(self.db_path)
         stats = db.get_stats()
-        users = db.get_all_users()
+        users, total = db.get_all_users(page=page, page_size=page_size)
+
+        # Calculate pagination
+        total_pages = (total + page_size - 1) // page_size
+        has_prev = page > 1
+        has_next = page < total_pages
 
         # Build users table rows
         user_rows = ""
@@ -257,6 +312,17 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
                 <td title="{user["keywords"]}">{keywords_display or "-"}</td>
                 <td>{user["notification_count"]}</td>
             </tr>"""
+
+        # Build pagination links
+        pagination_html = ""
+        if total_pages > 1:
+            pagination_html = '<div class="pagination">'
+            if has_prev:
+                pagination_html += f'<a href="/users?pwd={self.password}&page={page-1}">← 上一页</a>'
+            pagination_html += f'<span class="page-info">第 {page} / {total_pages} 页 (共 {total} 条)</span>'
+            if has_next:
+                pagination_html += f'<a href="/users?pwd={self.password}&page={page+1}">下一页 →</a>'
+            pagination_html += '</div>'
 
         html = f"""<!DOCTYPE html>
 <html>
@@ -279,6 +345,10 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         a {{ color: #007bff; text-decoration: none; }}
         a:hover {{ text-decoration: underline; }}
         .back {{ margin-bottom: 20px; }}
+        .pagination {{ margin-top: 20px; display: flex; justify-content: center; align-items: center; gap: 20px; }}
+        .pagination a {{ padding: 8px 16px; background: #007bff; color: white; border-radius: 4px; }}
+        .pagination a:hover {{ background: #0056b3; text-decoration: none; }}
+        .page-info {{ color: #666; }}
     </style>
 </head>
 <body>
@@ -330,6 +400,7 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
             {user_rows if user_rows else "<tr><td colspan='5' style='text-align:center;color:#999;'>暂无用户</td></tr>"}
         </tbody>
     </table>
+    {pagination_html}
 </body>
 </html>"""
         self._send_response(200, html)

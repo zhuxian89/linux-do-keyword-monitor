@@ -71,6 +71,10 @@ class DiscourseSource(BaseSource):
         posts = []
         topics = data.get("topic_list", {}).get("topics", [])
 
+        # Build user id to username mapping
+        users = data.get("users", [])
+        user_map = {user.get("id"): user.get("username") for user in users}
+
         for topic in topics:
             post_id = str(topic.get("id", ""))
             title = topic.get("title", "")
@@ -83,11 +87,28 @@ class DiscourseSource(BaseSource):
             created_at = topic.get("created_at", "")
             pub_date = self._parse_date(created_at)
 
+            # Parse author from posters (first poster is the author)
+            author = None
+            posters = topic.get("posters", [])
+            if posters:
+                # First poster with description containing "原始发帖人" or "Original Poster" is the author
+                for poster in posters:
+                    desc = poster.get("description", "")
+                    if "原始发帖人" in desc or "Original Poster" in desc:
+                        user_id = poster.get("user_id")
+                        author = user_map.get(user_id)
+                        break
+                # Fallback to first poster
+                if not author and posters:
+                    user_id = posters[0].get("user_id")
+                    author = user_map.get(user_id)
+
             posts.append(Post(
                 id=post_id,
                 title=title,
                 link=link,
-                pub_date=pub_date
+                pub_date=pub_date,
+                author=author
             ))
 
         return posts

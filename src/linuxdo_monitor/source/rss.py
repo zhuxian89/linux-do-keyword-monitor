@@ -41,15 +41,28 @@ class RSSSource(BaseSource):
         for entry in feed.entries:
             post_id = self._generate_id(entry)
             pub_date = self._parse_date(entry)
+            author = self._parse_author(entry)
 
             posts.append(Post(
                 id=post_id,
                 title=entry.get("title", ""),
                 link=entry.get("link", ""),
-                pub_date=pub_date
+                pub_date=pub_date,
+                author=author
             ))
 
         return posts
+
+    def _parse_author(self, entry) -> str:
+        """Parse author from entry"""
+        # Try different author fields
+        if entry.get("author"):
+            return entry["author"]
+        if entry.get("dc_creator"):
+            return entry["dc_creator"]
+        if entry.get("author_detail", {}).get("name"):
+            return entry["author_detail"]["name"]
+        return None
 
     def _generate_id(self, entry) -> str:
         """Generate unique ID for a post"""

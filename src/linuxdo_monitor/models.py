@@ -26,6 +26,7 @@ class Post:
     title: str
     link: str
     pub_date: datetime
+    author: Optional[str] = None
 
 
 @dataclass

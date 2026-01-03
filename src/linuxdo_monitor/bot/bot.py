@@ -33,6 +33,10 @@ class TelegramBot:
         self.application.add_handler(CommandHandler("list", self.handlers.list_subscriptions))
         self.application.add_handler(CommandHandler("subscribe_all", self.handlers.subscribe_all))
         self.application.add_handler(CommandHandler("unsubscribe_all", self.handlers.unsubscribe_all))
+        self.application.add_handler(CommandHandler("subscribe_user", self.handlers.subscribe_user))
+        self.application.add_handler(CommandHandler("unsubscribe_user", self.handlers.unsubscribe_user))
+        self.application.add_handler(CommandHandler("list_users", self.handlers.list_users))
+        self.application.add_handler(CommandHandler("stats", self.handlers.stats))
 
         return self.application
 
