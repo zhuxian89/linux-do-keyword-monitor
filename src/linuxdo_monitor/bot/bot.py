@@ -79,3 +79,22 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"Failed to send notification to {chat_id}: {e}")
             return False
+
+    async def send_admin_alert(self, chat_id: int, message: str) -> bool:
+        """Send admin alert message"""
+        try:
+            alert_message = (
+                f"🚨 <b>系统告警</b>\n"
+                f"━━━━━━━━━━━━━━━\n\n"
+                f"{message}"
+            )
+            await self.application.bot.send_message(
+                chat_id=chat_id,
+                text=alert_message,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send admin alert to {chat_id}: {e}")
+            return False

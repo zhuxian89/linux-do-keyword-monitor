@@ -1,21 +1,53 @@
 import json
 import os
+from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
+
+
+class SourceType(str, Enum):
+    """Data source type"""
+    RSS = "rss"
+    DISCOURSE = "discourse"
 
 
 class AppConfig(BaseModel):
     """Application configuration"""
     bot_token: str = Field(description="Telegram Bot Token")
+
+    # Admin configuration
+    admin_chat_id: Optional[int] = Field(
+        default=None,
+        description="Admin chat ID for receiving alerts"
+    )
+
+    # Data source configuration
+    source_type: SourceType = Field(
+        default=SourceType.RSS,
+        description="Data source type: rss or discourse"
+    )
+
+    # RSS source config
     rss_url: str = Field(
         default="https://linux.do/latest.rss",
         description="RSS feed URL"
     )
+
+    # Discourse source config
+    discourse_url: str = Field(
+        default="https://linux.do",
+        description="Discourse base URL"
+    )
+    discourse_cookie: Optional[str] = Field(
+        default=None,
+        description="Discourse cookie for authentication"
+    )
+
     fetch_interval: int = Field(
         default=60,
-        description="RSS fetch interval in seconds"
+        description="Fetch interval in seconds"
     )
 
 

@@ -1,17 +1,17 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from .bot.bot import TelegramBot, MESSAGE_INTERVAL
-from .config import AppConfig
+from .config import AppConfig, ConfigManager, SourceType
 from .database import Database
 from .matcher.keyword import KeywordMatcher
 from .models import Post
-from .rss.fetcher import HttpFetcher
-from .rss.parser import RSSParser
+from .source import BaseSource, RSSSource, DiscourseSource
+from .web import test_cookie
 
 # Configure logging
 logging.basicConfig(
@@ -25,24 +25,110 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
 
+def create_source(config: AppConfig) -> BaseSource:
+    """Factory function to create data source based on config"""
+    if config.source_type == SourceType.DISCOURSE:
+        if not config.discourse_cookie:
+            raise ValueError("Discourse source requires cookie configuration")
+        return DiscourseSource(
+            base_url=config.discourse_url,
+            cookie=config.discourse_cookie
+        )
+    else:
+        return RSSSource(url=config.rss_url)
+
+
 class Application:
     """Main application that orchestrates all components"""
 
-    def __init__(self, config: AppConfig, db_path: Path):
+    def __init__(self, config: AppConfig, db_path: Path, config_manager: Optional[ConfigManager] = None):
         self.config = config
+        self.config_manager = config_manager
+        self.db_path = db_path
         self.db = Database(db_path)
         self.bot = TelegramBot(config.bot_token, self.db)
-        self.fetcher = HttpFetcher(config.rss_url)
-        self.parser = RSSParser()
+        self.source = create_source(config)
         self.matcher = KeywordMatcher()
         self.scheduler = AsyncIOScheduler()
+        self._cookie_invalid_notified = False  # Track if we've notified admin about invalid cookie
+        self._using_fallback = False  # Track if we're using RSS fallback
+
+    def reload_config(self):
+        """Hot reload configuration"""
+        if not self.config_manager:
+            logger.warning("无法热更新：ConfigManager 未设置")
+            return
+
+        new_config = self.config_manager.load()
+        if not new_config:
+            logger.error("热更新失败：无法加载配置")
+            return
+
+        # Update source
+        self.config = new_config
+        self.source = create_source(new_config)
+        # Reset cookie invalid state on config reload
+        self._cookie_invalid_notified = False
+        self._using_fallback = False
+        logger.info(f"🔄 配置已热更新，数据源: {self.source.get_source_name()}")
+
+    async def _notify_admin(self, message: str) -> None:
+        """Send notification to admin"""
+        if not self.config.admin_chat_id:
+            logger.warning("管理员 chat_id 未配置，无法发送告警")
+            return
+
+        try:
+            await self.bot.send_admin_alert(self.config.admin_chat_id, message)
+            logger.info(f"📢 已发送管理员告警")
+        except Exception as e:
+            logger.error(f"发送管理员告警失败: {e}")
+
+    def _check_cookie_valid(self) -> bool:
+        """Check if discourse cookie is valid"""
+        if self.config.source_type != SourceType.DISCOURSE:
+            return True
+
+        if not self.config.discourse_cookie:
+            return False
+
+        result = test_cookie(self.config.discourse_cookie, self.config.discourse_url)
+        return result.get("valid", False)
+
+    def _fallback_to_rss(self) -> BaseSource:
+        """Create RSS fallback source"""
+        return RSSSource(url=self.config.rss_url)
 
     async def fetch_and_notify(self) -> None:
-        """Fetch RSS feed and send notifications for matching posts"""
+        """Fetch posts and send notifications"""
         try:
-            logger.info("📡 开始拉取 RSS...")
-            content = self.fetcher.fetch()
-            posts = self.parser.parse(content)
+            # Check cookie validity for Discourse source
+            source_to_use = self.source
+            if self.config.source_type == SourceType.DISCOURSE:
+                if not self._check_cookie_valid():
+                    # Cookie invalid, fallback to RSS
+                    if not self._cookie_invalid_notified:
+                        logger.warning("⚠️ Cookie 已失效，降级使用 RSS 源")
+                        await self._notify_admin(
+                            "⚠️ Cookie 已失效\n\n"
+                            "Discourse Cookie 验证失败，已自动降级为 RSS 源。\n"
+                            "请尽快更新 Cookie 以恢复完整功能。\n\n"
+                            "更新方式：访问配置页面更新 Cookie"
+                        )
+                        self._cookie_invalid_notified = True
+                    source_to_use = self._fallback_to_rss()
+                    self._using_fallback = True
+                else:
+                    # Cookie is valid again
+                    if self._using_fallback:
+                        logger.info("✅ Cookie 已恢复有效，切换回 Discourse 源")
+                        await self._notify_admin("✅ Cookie 已恢复有效，已切换回 Discourse 源")
+                        self._using_fallback = False
+                        self._cookie_invalid_notified = False
+                    source_to_use = self.source
+
+            logger.info(f"📡 开始拉取数据 ({source_to_use.get_source_name()})...")
+            posts = source_to_use.fetch()
 
             keywords = self.db.get_all_keywords()
             subscribe_all_users = self.db.get_all_subscribe_all_users()
@@ -103,19 +189,19 @@ class Application:
             logger.info(f"✅ 拉取完成: 共 {len(posts)} 条, 新增 {len(new_posts)} 条, 推送 {notifications_sent} 条通知")
 
         except Exception as e:
-            logger.error(f"❌ RSS 拉取失败: {e}")
+            logger.error(f"❌ 数据拉取失败: {e}")
 
     def run(self) -> None:
         """Start the application"""
         # Setup bot
         application = self.bot.setup()
 
-        # Schedule RSS fetching
+        # Schedule fetching
         self.scheduler.add_job(
             self.fetch_and_notify,
             "interval",
             seconds=self.config.fetch_interval,
-            id="rss_fetch"
+            id="data_fetch"
         )
 
         # Run initial fetch after bot starts
