@@ -28,6 +28,7 @@ class Database:
     def _init_db(self) -> None:
         """Initialize database tables"""
         with self._get_conn() as conn:
+            # First, create tables without the author-related index
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS users (
                     chat_id INTEGER PRIMARY KEY,
@@ -47,12 +48,8 @@ class Database:
                     id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
                     link TEXT NOT NULL,
-                    pub_date TEXT NOT NULL,
-                    author TEXT
+                    pub_date TEXT NOT NULL
                 );
-
-                -- Add author column to existing posts table if not exists
-                -- SQLite doesn't support IF NOT EXISTS for ALTER TABLE, so we handle this in code
 
                 CREATE TABLE IF NOT EXISTS notifications (
                     chat_id INTEGER NOT NULL,
@@ -98,14 +95,15 @@ class Database:
                     ON user_subscriptions(chat_id);
                 CREATE INDEX IF NOT EXISTS idx_user_subscriptions_author
                     ON user_subscriptions(author);
-
-                -- Posts author index
-                CREATE INDEX IF NOT EXISTS idx_posts_author
-                    ON posts(author);
             """)
 
             # Migration: Add author column to posts table if not exists
             self._migrate_add_author_column(conn)
+
+            # Create author index after migration
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author)
+            """)
 
     def _migrate_add_author_column(self, conn: sqlite3.Connection) -> None:
         """Migration: Add author column to posts table if not exists"""
