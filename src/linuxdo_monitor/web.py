@@ -63,10 +63,11 @@ def test_cookie(cookie: str, base_url: str = "https://linux.do") -> dict:
 class ConfigWebHandler(BaseHTTPRequestHandler):
     """Simple HTTP handler for config management"""
 
-    def __init__(self, config_path: Path, password: str, on_config_update: Callable, *args, **kwargs):
+    def __init__(self, config_path: Path, password: str, on_config_update: Callable, db_path: Optional[Path], *args, **kwargs):
         self.config_path = config_path
         self.password = password
         self.on_config_update = on_config_update
+        self.db_path = db_path
         super().__init__(*args, **kwargs)
 
     def log_message(self, format, *args):
@@ -114,6 +115,11 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
             self._send_response(200, json.dumps(result, ensure_ascii=False), "application/json")
             return
 
+        # Users page
+        if path == "/users":
+            self._serve_users_page()
+            return
+
         # Main page
         config = self._load_config()
         cookie_display = config.get("discourse_cookie", "")[:50] + "..." if config.get("discourse_cookie") else "未设置"
@@ -148,7 +154,8 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
     <div class="info">
         <strong>当前状态:</strong><br>
         数据源: {config.get('source_type', 'rss')}<br>
-        Cookie: {cookie_display}
+        Cookie: {cookie_display}<br><br>
+        <a href="/users?pwd={self.password}">📊 查看用户统计</a>
     </div>
 
     <form method="POST" action="?pwd={self.password}">
@@ -221,6 +228,108 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
             }}
         }}
     </script>
+</body>
+</html>"""
+        self._send_response(200, html)
+
+    def _serve_users_page(self):
+        """Serve users management page"""
+        # Load database
+        if not self.db_path or not self.db_path.exists():
+            self._send_response(500, "数据库未配置或不存在")
+            return
+
+        from .database import Database
+        db = Database(self.db_path)
+        stats = db.get_stats()
+        users = db.get_all_users()
+
+        # Build users table rows
+        user_rows = ""
+        for user in users:
+            keywords_display = user["keywords"][:50] + "..." if len(user["keywords"]) > 50 else user["keywords"]
+            subscribe_all_badge = '<span style="color: #28a745;">✓ 全部</span>' if user["is_subscribe_all"] else ""
+            user_rows += f"""
+            <tr>
+                <td><code>{user["chat_id"]}</code></td>
+                <td>{user["created_at"][:10]}</td>
+                <td>{user["keyword_count"]} {subscribe_all_badge}</td>
+                <td title="{user["keywords"]}">{keywords_display or "-"}</td>
+                <td>{user["notification_count"]}</td>
+            </tr>"""
+
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>用户统计 - Linux.do Monitor</title>
+    <style>
+        body {{ font-family: -apple-system, sans-serif; max-width: 900px; margin: 50px auto; padding: 20px; }}
+        h1 {{ color: #333; }}
+        .stats {{ display: flex; gap: 20px; flex-wrap: wrap; margin: 20px 0; }}
+        .stat-card {{ background: #f8f9fa; padding: 20px; border-radius: 8px; min-width: 120px; text-align: center; }}
+        .stat-card .number {{ font-size: 32px; font-weight: bold; color: #007bff; }}
+        .stat-card .label {{ color: #666; margin-top: 5px; }}
+        table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+        th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }}
+        th {{ background: #f8f9fa; font-weight: bold; }}
+        tr:hover {{ background: #f5f5f5; }}
+        code {{ background: #e9ecef; padding: 2px 6px; border-radius: 3px; }}
+        a {{ color: #007bff; text-decoration: none; }}
+        a:hover {{ text-decoration: underline; }}
+        .back {{ margin-bottom: 20px; }}
+    </style>
+</head>
+<body>
+    <div class="back">
+        <a href="/?pwd={self.password}">← 返回配置页面</a>
+    </div>
+
+    <h1>📊 用户统计</h1>
+
+    <div class="stats">
+        <div class="stat-card">
+            <div class="number">{stats["user_count"]}</div>
+            <div class="label">总用户数</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">{stats["subscribe_all_count"]}</div>
+            <div class="label">订阅全部</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">{stats["keyword_count"]}</div>
+            <div class="label">关键词数</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">{stats["subscription_count"]}</div>
+            <div class="label">总订阅数</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">{stats["post_count"]}</div>
+            <div class="label">已处理帖子</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">{stats["notification_count"]}</div>
+            <div class="label">已发送通知</div>
+        </div>
+    </div>
+
+    <h2>用户列表</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Chat ID</th>
+                <th>注册时间</th>
+                <th>订阅数</th>
+                <th>关键词</th>
+                <th>收到通知</th>
+            </tr>
+        </thead>
+        <tbody>
+            {user_rows if user_rows else "<tr><td colspan='5' style='text-align:center;color:#999;'>暂无用户</td></tr>"}
+        </tbody>
+    </table>
 </body>
 </html>"""
         self._send_response(200, html)
@@ -309,10 +418,11 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
 class ConfigWebServer:
     """Lightweight web server for config management"""
 
-    def __init__(self, config_path: Path, port: int = 8080, password: str = "admin"):
+    def __init__(self, config_path: Path, port: int = 8080, password: str = "admin", db_path: Optional[Path] = None):
         self.config_path = config_path
         self.port = port
         self.password = password
+        self.db_path = db_path
         self.server: Optional[HTTPServer] = None
         self.on_config_update: Optional[Callable] = None
 
@@ -326,7 +436,8 @@ class ConfigWebServer:
             ConfigWebHandler,
             self.config_path,
             self.password,
-            self.on_config_update
+            self.on_config_update,
+            self.db_path
         )
         self.server = HTTPServer(("0.0.0.0", self.port), handler)
 

@@ -211,7 +211,8 @@ def run(config_dir, web_port, web_password):
         web_server = ConfigWebServer(
             config_path=config_manager.config_path,
             port=web_port,
-            password=web_password
+            password=web_password,
+            db_path=config_manager.get_db_path()
         )
         web_server.set_update_callback(app.reload_config)
         web_server.start()

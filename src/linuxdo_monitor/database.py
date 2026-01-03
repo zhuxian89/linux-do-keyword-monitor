@@ -242,3 +242,48 @@ class Database:
                 (chat_id, post_id)
             ).fetchone()
         return row is not None
+
+    # Statistics operations
+    def get_all_users(self) -> List[dict]:
+        """Get all users with their subscription info"""
+        with self._get_conn() as conn:
+            rows = conn.execute("""
+                SELECT
+                    u.chat_id,
+                    u.created_at,
+                    (SELECT COUNT(*) FROM subscriptions s WHERE s.chat_id = u.chat_id) as keyword_count,
+                    (SELECT GROUP_CONCAT(s.keyword, ', ') FROM subscriptions s WHERE s.chat_id = u.chat_id) as keywords,
+                    (SELECT 1 FROM subscribe_all sa WHERE sa.chat_id = u.chat_id) as is_subscribe_all,
+                    (SELECT COUNT(*) FROM notifications n WHERE n.chat_id = u.chat_id) as notification_count
+                FROM users u
+                ORDER BY u.created_at DESC
+            """).fetchall()
+        return [
+            {
+                "chat_id": row["chat_id"],
+                "created_at": row["created_at"],
+                "keyword_count": row["keyword_count"] or 0,
+                "keywords": row["keywords"] or "",
+                "is_subscribe_all": bool(row["is_subscribe_all"]),
+                "notification_count": row["notification_count"] or 0,
+            }
+            for row in rows
+        ]
+
+    def get_stats(self) -> dict:
+        """Get overall statistics"""
+        with self._get_conn() as conn:
+            user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            subscription_count = conn.execute("SELECT COUNT(*) FROM subscriptions").fetchone()[0]
+            subscribe_all_count = conn.execute("SELECT COUNT(*) FROM subscribe_all").fetchone()[0]
+            post_count = conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
+            notification_count = conn.execute("SELECT COUNT(*) FROM notifications").fetchone()[0]
+            keyword_count = conn.execute("SELECT COUNT(DISTINCT keyword) FROM subscriptions").fetchone()[0]
+        return {
+            "user_count": user_count,
+            "subscription_count": subscription_count,
+            "subscribe_all_count": subscribe_all_count,
+            "post_count": post_count,
+            "notification_count": notification_count,
+            "keyword_count": keyword_count,
+        }
