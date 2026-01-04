@@ -1,4 +1,5 @@
 import logging
+from functools import wraps
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -11,6 +12,20 @@ logger = logging.getLogger(__name__)
 MAX_KEYWORDS_PER_USER = 5
 # Maximum authors per user
 MAX_AUTHORS_PER_USER = 5
+
+
+def require_registration(func):
+    """Decorator to check if user is registered before executing command"""
+    @wraps(func)
+    async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        chat_id = update.effective_chat.id
+        if not self.db.user_exists(chat_id):
+            await update.message.reply_text(
+                "👋 您还没有注册，请先发送 /start 开始使用机器人"
+            )
+            return
+        return await func(self, update, context, *args, **kwargs)
+    return wrapper
 
 
 class BotHandlers:
@@ -43,6 +58,7 @@ class BotHandlers:
         """Handle /help command"""
         await update.message.reply_text(
             "📖 帮助信息\n\n"
+            "⚡ 首次使用请先发送 /start 注册\n\n"
             "本机器人监控 Linux.do 论坛的最新帖子，"
             "当帖子标题包含您订阅的关键词时，会发送通知给您。\n\n"
             "📝 关键词订阅：\n"
@@ -58,13 +74,13 @@ class BotHandlers:
             "/unsubscribe_all - 取消订阅所有\n\n"
             "📊 统计：\n"
             "/stats - 查看关键词热度统计\n\n"
-            "/help - 显示此帮助信息\n\n"
             f"⚠️ 每位用户最多可订阅 {MAX_KEYWORDS_PER_USER} 个关键词和 {MAX_AUTHORS_PER_USER} 个用户\n\n"
             "💡 示例：\n"
             "/subscribe docker\n"
             "/subscribe_user neo"
         )
 
+    @require_registration
     async def subscribe(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /subscribe command"""
         chat_id = update.effective_chat.id
@@ -78,9 +94,6 @@ class BotHandlers:
         if not keyword:
             await update.message.reply_text("❌ 关键词不能为空")
             return
-
-        # Ensure user exists
-        self.db.add_user(chat_id)
 
         # Check keyword limit
         current_subscriptions = self.db.get_user_subscriptions(chat_id)
@@ -105,6 +118,7 @@ class BotHandlers:
         else:
             await update.message.reply_text(f"⚠️ 您已经订阅了关键词：{keyword}")
 
+    @require_registration
     async def unsubscribe(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /unsubscribe command"""
         chat_id = update.effective_chat.id
@@ -128,6 +142,7 @@ class BotHandlers:
         else:
             await update.message.reply_text(f"⚠️ 您没有订阅关键词：{keyword}")
 
+    @require_registration
     async def list_subscriptions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /list command"""
         chat_id = update.effective_chat.id
@@ -156,10 +171,10 @@ class BotHandlers:
 
         await update.message.reply_text("\n\n".join(lines))
 
+    @require_registration
     async def subscribe_all(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /subscribe_all command"""
         chat_id = update.effective_chat.id
-        self.db.add_user(chat_id)
 
         if self.db.add_subscribe_all(chat_id):
             # Invalidate cache
@@ -173,6 +188,7 @@ class BotHandlers:
         else:
             await update.message.reply_text("⚠️ 您已经订阅了所有新帖子")
 
+    @require_registration
     async def unsubscribe_all(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /unsubscribe_all command"""
         chat_id = update.effective_chat.id
@@ -185,6 +201,7 @@ class BotHandlers:
         else:
             await update.message.reply_text("⚠️ 您没有订阅所有新帖子")
 
+    @require_registration
     async def subscribe_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /subscribe_user command - subscribe to a specific author"""
         chat_id = update.effective_chat.id
@@ -211,9 +228,6 @@ class BotHandlers:
             )
             return
 
-        # Ensure user exists
-        self.db.add_user(chat_id)
-
         # Check author subscription limit
         current_count = self.db.get_user_subscription_count(chat_id)
         if current_count >= MAX_AUTHORS_PER_USER:
@@ -237,6 +251,7 @@ class BotHandlers:
         else:
             await update.message.reply_text(f"⚠️ 您已经订阅了用户：{author}")
 
+    @require_registration
     async def unsubscribe_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /unsubscribe_user command"""
         chat_id = update.effective_chat.id
@@ -268,6 +283,7 @@ class BotHandlers:
         else:
             await update.message.reply_text(f"⚠️ 您没有订阅用户：{author}")
 
+    @require_registration
     async def list_users(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /list_users command - list subscribed authors"""
         chat_id = update.effective_chat.id
@@ -287,6 +303,7 @@ class BotHandlers:
             f"📊 剩余可订阅：{remaining} 个"
         )
 
+    @require_registration
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /stats command - show keyword statistics"""
         stats = self.db.get_stats()
@@ -305,5 +322,12 @@ class BotHandlers:
         """Handle unknown commands"""
         await update.message.reply_text(
             "❌ 不支持的命令\n\n"
+            "请输入 /help 查看支持的命令列表"
+        )
+
+    async def unknown_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle unknown text messages"""
+        await update.message.reply_text(
+            "❓ 无法识别的消息\n\n"
             "请输入 /help 查看支持的命令列表"
         )

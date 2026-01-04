@@ -41,6 +41,9 @@ class TelegramBot:
         # Handle unknown commands
         self.application.add_handler(MessageHandler(filters.COMMAND, self.handlers.unknown_command))
 
+        # Handle unknown text messages
+        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handlers.unknown_message))
+
         return self.application
 
     async def send_notification(self, chat_id: int, title: str, link: str, keyword: str) -> bool:

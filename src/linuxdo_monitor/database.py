@@ -136,6 +136,14 @@ class Database:
             )
         return None
 
+    def user_exists(self, chat_id: int) -> bool:
+        """Check if user exists"""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM users WHERE chat_id = ?", (chat_id,)
+            ).fetchone()
+        return row is not None
+
     # Subscription operations
     def add_subscription(self, chat_id: int, keyword: str) -> Optional[Subscription]:
         """Add a subscription for a user"""
