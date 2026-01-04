@@ -56,8 +56,9 @@ class Application:
         self.matcher = KeywordMatcher()
         self.scheduler = AsyncIOScheduler()
         self.cache = get_cache()
-        self._cookie_invalid_notified = False
-        self._using_fallback = False
+        self._cookie_fail_count = 0  # 连续失败计数器
+        self._cookie_fail_threshold = 5  # 连续失败阈值
+        self._cookie_notify_round = 0  # 第几轮通知
 
     def reload_config(self):
         """Hot reload configuration"""
@@ -74,8 +75,8 @@ class Application:
         self.config = new_config
         self.source = create_source(new_config)
         # Reset cookie invalid state on config reload
-        self._cookie_invalid_notified = False
-        self._using_fallback = False
+        self._cookie_fail_count = 0
+        self._cookie_notify_round = 0
         # Invalidate cache on config change
         self.cache.clear_all()
         logger.info(f"🔄 配置已热更新，数据源: {self.source.get_source_name()}")
@@ -104,7 +105,7 @@ class Application:
         return result.get("valid", False)
 
     def _fallback_to_rss(self) -> BaseSource:
-        """Create RSS fallback source"""
+        """Create RSS fallback source (deprecated, kept for compatibility)"""
         return RSSSource(url=self.config.rss_url)
 
     def _get_keywords_cached(self) -> List[str]:
@@ -194,31 +195,38 @@ class Application:
     async def fetch_and_notify(self) -> None:
         """Fetch posts and send notifications"""
         try:
-            # Check cookie validity for Discourse source
-            source_to_use = self.source
+            # Check cookie validity for Discourse source (only for alerting, not for switching)
             if self.config.source_type == SourceType.DISCOURSE:
                 if not self._check_cookie_valid():
-                    if not self._cookie_invalid_notified:
-                        logger.warning("⚠️ Cookie 已失效，降级使用 RSS 源")
-                        await self._notify_admin(
-                            "⚠️ Cookie 已失效\n\n"
-                            "Discourse Cookie 验证失败，已自动降级为 RSS 源。\n"
-                            "请尽快更新 Cookie 以恢复完整功能。\n\n"
-                            "更新方式：访问配置页面更新 Cookie"
-                        )
-                        self._cookie_invalid_notified = True
-                    source_to_use = self._fallback_to_rss()
-                    self._using_fallback = True
-                else:
-                    if self._using_fallback:
-                        logger.info("✅ Cookie 已恢复有效，切换回 Discourse 源")
-                        await self._notify_admin("✅ Cookie 已恢复有效，已切换回 Discourse 源")
-                        self._using_fallback = False
-                        self._cookie_invalid_notified = False
-                    source_to_use = self.source
+                    self._cookie_fail_count += 1
+                    logger.debug(f"Cookie 检测失败，连续失败次数: {self._cookie_fail_count}/{self._cookie_fail_threshold}")
 
-            logger.info(f"📡 开始拉取数据 ({source_to_use.get_source_name()})...")
-            posts = source_to_use.fetch()
+                    # Every 5 failures, send 3 alerts (重要的事情说三遍)
+                    if self._cookie_fail_count % self._cookie_fail_threshold == 0:
+                        self._cookie_notify_round += 1
+                        logger.warning(f"⚠️ Cookie 连续 {self._cookie_fail_count} 次检测失败，第 {self._cookie_notify_round} 轮通知")
+
+                        # 重要的事情说三遍
+                        for i in range(1, 4):
+                            await self._notify_admin(
+                                f"⚠️ Cookie 可能已失效（第 {self._cookie_notify_round} 轮通知，第 {i}/3 遍）\n\n"
+                                f"Discourse Cookie 连续 {self._cookie_fail_count} 次验证失败。\n"
+                                f"当前仍可拉取公开数据，但部分限制内容可能无法获取。\n\n"
+                                f"{'❗' * i} 请检查 Cookie 是否需要更新 {'❗' * i}\n\n"
+                                f"更新方式：访问配置页面更新 Cookie"
+                            )
+                else:
+                    # Cookie valid, reset counter
+                    if self._cookie_fail_count > 0:
+                        logger.info(f"✅ Cookie 检测恢复正常（之前连续失败 {self._cookie_fail_count} 次）")
+                        if self._cookie_notify_round > 0:
+                            await self._notify_admin("✅ Cookie 已恢复有效，之前的告警可以忽略了")
+                    self._cookie_fail_count = 0
+                    self._cookie_notify_round = 0
+
+            # Always use the configured source (no fallback to RSS)
+            logger.info(f"📡 开始拉取数据 ({self.source.get_source_name()})...")
+            posts = self.source.fetch()
 
             # Use cached data
             keywords = self._get_keywords_cached()
