@@ -73,7 +73,11 @@ class BotHandlers:
             await update.message.reply_text("❌ 请提供关键词，例如：/subscribe docker")
             return
 
-        keyword = " ".join(context.args)
+        keyword = " ".join(context.args).strip()
+
+        if not keyword:
+            await update.message.reply_text("❌ 关键词不能为空")
+            return
 
         # Ensure user exists
         self.db.add_user(chat_id)
@@ -109,7 +113,11 @@ class BotHandlers:
             await update.message.reply_text("❌ 请提供关键词，例如：/unsubscribe docker")
             return
 
-        keyword = " ".join(context.args)
+        keyword = " ".join(context.args).strip()
+
+        if not keyword:
+            await update.message.reply_text("❌ 关键词不能为空")
+            return
 
         if self.db.remove_subscription(chat_id, keyword):
             # Invalidate cache
@@ -182,10 +190,26 @@ class BotHandlers:
         chat_id = update.effective_chat.id
 
         if not context.args:
-            await update.message.reply_text("❌ 请提供用户名，例如：/subscribe_user neo")
+            await update.message.reply_text(
+                "❌ 请提供用户名，例如：/subscribe_user neo\n\n"
+                "💡 用户名不带 @，就是其他人可以使用 @<用户名> 来提及您\n"
+                "比如 @zhuxian123 作者本人 和 @jason_wong1 就是【Wong公益站大佬】"
+            )
             return
 
-        author = " ".join(context.args)
+        author = " ".join(context.args).strip()
+
+        # Remove @ prefix if provided
+        if author.startswith("@"):
+            author = author[1:]
+
+        if not author:
+            await update.message.reply_text(
+                "❌ 用户名不能为空\n\n"
+                "💡 用户名不带 @，就是其他人可以使用 @<用户名> 来提及您\n"
+                "比如 @zhuxian123 作者本人 和 @jason_wong1 就是【Wong公益站大佬】"
+            )
+            return
 
         # Ensure user exists
         self.db.add_user(chat_id)
@@ -218,10 +242,22 @@ class BotHandlers:
         chat_id = update.effective_chat.id
 
         if not context.args:
-            await update.message.reply_text("❌ 请提供用户名，例如：/unsubscribe_user neo")
+            await update.message.reply_text(
+                "❌ 请提供用户名，例如：/unsubscribe_user neo\n\n"
+                "💡 用户名不带 @，就是其他人可以使用 @<用户名> 来提及您\n"
+                "比如 @zhuxian123 作者本人 和 @jason_wong1 就是【Wong公益站大佬】"
+            )
             return
 
-        author = " ".join(context.args)
+        author = " ".join(context.args).strip()
+
+        # Remove @ prefix if provided
+        if author.startswith("@"):
+            author = author[1:]
+
+        if not author:
+            await update.message.reply_text("❌ 用户名不能为空")
+            return
 
         if self.db.remove_user_subscription(chat_id, author):
             # Invalidate cache
@@ -263,4 +299,11 @@ class BotHandlers:
             f"🌟 订阅全部：{stats['subscribe_all_count']}\n"
             f"📰 已处理帖子：{stats['post_count']}\n"
             f"📤 已发送通知：{stats['notification_count']}"
+        )
+
+    async def unknown_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle unknown commands"""
+        await update.message.reply_text(
+            "❌ 不支持的命令\n\n"
+            "请输入 /help 查看支持的命令列表"
         )

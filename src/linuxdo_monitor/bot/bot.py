@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from telegram.ext import Application, CommandHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram.constants import ParseMode
 
 from ..database import Database
@@ -37,6 +37,9 @@ class TelegramBot:
         self.application.add_handler(CommandHandler("unsubscribe_user", self.handlers.unsubscribe_user))
         self.application.add_handler(CommandHandler("list_users", self.handlers.list_users))
         self.application.add_handler(CommandHandler("stats", self.handlers.stats))
+
+        # Handle unknown commands
+        self.application.add_handler(MessageHandler(filters.COMMAND, self.handlers.unknown_command))
 
         return self.application
 

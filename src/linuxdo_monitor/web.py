@@ -76,10 +76,13 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         logger.debug(f"Web: {args[0]}")
 
     def _send_response(self, code: int, content: str, content_type: str = "text/html; charset=utf-8"):
+        content_bytes = content.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(content_bytes)))
+        self.send_header("Connection", "close")
         self.end_headers()
-        self.wfile.write(content.encode("utf-8"))
+        self.wfile.write(content_bytes)
 
     def _check_auth(self) -> bool:
         """Check password from query string"""
@@ -229,14 +232,29 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
                     headers: {{ 'Content-Type': 'application/x-www-form-urlencoded' }},
                     body: 'cookie=' + encodeURIComponent(cookie)
                 }});
-                const data = await response.json();
+
+                if (!response.ok) {{
+                    resultDiv.className = 'error';
+                    resultDiv.innerHTML = '❌ HTTP错误: ' + response.status;
+                    return;
+                }}
+
+                const text = await response.text();
+                let data;
+                try {{
+                    data = JSON.parse(text);
+                }} catch (parseErr) {{
+                    resultDiv.className = 'error';
+                    resultDiv.innerHTML = '❌ 解析响应失败: ' + text.substring(0, 100);
+                    return;
+                }}
 
                 if (data.valid) {{
                     resultDiv.className = 'success';
                     resultDiv.innerHTML = '✅ ' + (data.message || 'Cookie 有效！');
                 }} else {{
                     resultDiv.className = 'error';
-                    resultDiv.innerHTML = '❌ ' + data.error;
+                    resultDiv.innerHTML = '❌ ' + (data.error || '未知错误');
                 }}
             }} catch (e) {{
                 resultDiv.className = 'error';
