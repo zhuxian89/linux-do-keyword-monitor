@@ -193,6 +193,11 @@ def run(config_dir, web_port, web_password):
         click.echo("❌ 配置文件不存在，请先运行 'linux-do-monitor init'")
         return
 
+    # 配置日志（输出到 stdout + 文件）
+    from .app import setup_logging
+    log_dir = config_manager.config_dir / "logs"
+    setup_logging(log_dir)
+
     cfg = config_manager.load()
     click.echo("🚀 启动 Linux.do 关键词监控服务...")
     click.echo(f"   数据源: {cfg.source_type.value}")
@@ -200,7 +205,8 @@ def run(config_dir, web_port, web_password):
         click.echo(f"   RSS URL: {cfg.rss_url}")
     else:
         click.echo(f"   Discourse URL: {cfg.discourse_url}")
-    click.echo(f"   拉取间隔: {cfg.fetch_interval}秒\n")
+    click.echo(f"   拉取间隔: {cfg.fetch_interval}秒")
+    click.echo(f"   日志目录: {log_dir}\n")
 
     from .app import Application
     app = Application(cfg, config_manager.get_db_path(), config_manager)

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import logging.handlers
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
 
@@ -14,7 +15,42 @@ from .models import Post
 from .source import BaseSource, RSSSource, DiscourseSource
 from .web import test_cookie
 
-# Configure logging
+
+def setup_logging(log_dir: Optional[Path] = None) -> None:
+    """配置日志系统
+
+    - 输出到 stdout（供 journald 收集）
+    - 输出到文件（按天轮转，保留30天）
+    """
+    log_format = "%(asctime)s - %(levelname)s - %(message)s"
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    # 清除已有的 handlers（避免重复添加）
+    root_logger.handlers.clear()
+
+    # Handler 1: stdout（供 systemd/journald）
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(logging.Formatter(log_format))
+    root_logger.addHandler(stream_handler)
+
+    # Handler 2: 文件（按天轮转）
+    if log_dir:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "app.log"
+        file_handler = logging.handlers.TimedRotatingFileHandler(
+            filename=log_file,
+            when="midnight",      # 每天午夜轮转
+            interval=1,
+            backupCount=30,       # 保留30天
+            encoding="utf-8"
+        )
+        file_handler.setFormatter(logging.Formatter(log_format))
+        file_handler.suffix = "%Y-%m-%d"  # 备份文件后缀格式
+        root_logger.addHandler(file_handler)
+
+
+# 默认初始化（仅 stdout，文件日志在 main 中配置）
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
