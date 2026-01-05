@@ -109,6 +109,10 @@ class TelegramBot:
         logger.error(f"发送失败 {chat_id}，已重试 {MAX_RETRIES} 次: {last_error}")
         return False
 
+    # 宽度填充字符（Hangul Filler U+3164，视觉空白但占宽度）
+    # 用于让消息气泡保持一致宽度
+    SPACER = "ㅤ" * 25
+
     async def send_notification(self, chat_id: int, title: str, link: str, keyword: str) -> bool:
         """Send notification to a user with styled message
 
@@ -120,7 +124,8 @@ class TelegramBot:
             f"📌 <b>匹配关键词</b>：<code>{keyword}</code>\n\n"
             f"📝 <b>标题</b>\n"
             f"{title}\n\n"
-            f"🔗 <a href=\"{link}\">点击查看原帖 →</a>"
+            f"🔗 <a href=\"{link}\">点击查看原帖 →</a>\n"
+            f"{self.SPACER}"
         )
         return await self._send_with_retry(chat_id, message, disable_preview=False)
 
@@ -134,7 +139,8 @@ class TelegramBot:
             f"📢 <b>Linux.do 新帖</b>\n\n"
             f"📝 <b>标题</b>\n"
             f"{title}\n\n"
-            f"🔗 <a href=\"{link}\">点击查看原帖 →</a>"
+            f"🔗 <a href=\"{link}\">点击查看原帖 →</a>\n"
+            f"{self.SPACER}"
         )
         return await self._send_with_retry(chat_id, message, disable_preview=False)
 
