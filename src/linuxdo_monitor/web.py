@@ -18,9 +18,10 @@ def test_cookie(cookie: str, base_url: str = "https://linux.do") -> dict:
         from curl_cffi import requests
 
         headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             "Cookie": cookie,
-            "Accept": "application/json",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
             "Referer": f"{base_url}/",
         }
 
@@ -28,8 +29,8 @@ def test_cookie(cookie: str, base_url: str = "https://linux.do") -> dict:
         response = requests.get(
             f"{base_url}/notifications.json",
             headers=headers,
-            timeout=10,
-            impersonate="chrome120"
+            timeout=15,
+            impersonate="chrome131"
         )
 
         if response.status_code == 200:

@@ -17,7 +17,7 @@ class DiscourseSource(BaseSource):
     DEFAULT_USER_AGENT = (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
+        "Chrome/131.0.0.0 Safari/537.36"
     )
 
     def __init__(
@@ -54,7 +54,7 @@ class DiscourseSource(BaseSource):
                 url,
                 headers=headers,
                 timeout=self.timeout,
-                impersonate="chrome120"
+                impersonate="chrome131"
             )
             response.raise_for_status()
             data = response.json()
