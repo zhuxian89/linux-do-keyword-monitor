@@ -1,5 +1,6 @@
 import requests
 import json
+import re
 
 FLARESOLVERR_URL = "http://localhost:8191"
 BASE_URL = "https://linux.do"
@@ -14,6 +15,15 @@ def load_cookie():
         return ""
 
 COOKIE = load_cookie()
+
+def extract_json_from_html(text):
+    """从 HTML 中提取 JSON（FlareSolverr 可能返回 <pre>JSON</pre>）"""
+    if text.startswith("{"):
+        return text
+    match = re.search(r'<pre[^>]*>(.*?)</pre>', text, re.DOTALL)
+    if match:
+        return match.group(1)
+    return text
 
 def extract_cookies(cookie_str):
     """提取需要的 cookie"""
@@ -47,6 +57,7 @@ def test_flaresolverr():
     print(f"   状态: {result.get('status')}")
     if result.get("status") == "ok":
         response = result["solution"]["response"]
+        response = extract_json_from_html(response)
         if response.startswith("{"):
             data = json.loads(response)
             topics = data.get("topic_list", {}).get("topics", [])
@@ -74,6 +85,7 @@ def test_flaresolverr():
     print(f"   状态: {result.get('status')}")
     if result.get("status") == "ok":
         response = result["solution"]["response"]
+        response = extract_json_from_html(response)
         if response.startswith("{"):
             data = json.loads(response)
             if "errors" in data:

@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from datetime import datetime
 from typing import List, Optional
 
@@ -10,6 +11,16 @@ from ..models import Post
 from .base import BaseSource
 
 logger = logging.getLogger(__name__)
+
+
+def extract_json_from_html(text):
+    """从 HTML 中提取 JSON（FlareSolverr 可能返回 <pre>JSON</pre>）"""
+    if text.startswith("{"):
+        return text
+    match = re.search(r'<pre[^>]*>(.*?)</pre>', text, re.DOTALL)
+    if match:
+        return match.group(1)
+    return text
 
 
 class DiscourseSource(BaseSource):
@@ -76,7 +87,8 @@ class DiscourseSource(BaseSource):
             if result.get("status") != "ok":
                 raise Exception(f"FlareSolverr error: {result.get('message')}")
 
-            data = json.loads(result["solution"]["response"])
+            response_text = extract_json_from_html(result["solution"]["response"])
+            data = json.loads(response_text)
             return self._parse_response(data)
         except Exception as e:
             logger.error(f"FlareSolverr 请求失败: {e}")

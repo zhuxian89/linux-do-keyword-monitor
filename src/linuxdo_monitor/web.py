@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import threading
 from functools import partial
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -10,6 +11,16 @@ from urllib.parse import parse_qs, urlparse
 from .cache import get_cache
 
 logger = logging.getLogger(__name__)
+
+
+def extract_json_from_html(text):
+    """从 HTML 中提取 JSON（FlareSolverr 可能返回 <pre>JSON</pre>）"""
+    if text.startswith("{"):
+        return text
+    match = re.search(r'<pre[^>]*>(.*?)</pre>', text, re.DOTALL)
+    if match:
+        return match.group(1)
+    return text
 
 
 def test_cookie(cookie: str, base_url: str = "https://linux.do", flaresolverr_url: str = None) -> dict:
@@ -47,7 +58,10 @@ def test_cookie(cookie: str, base_url: str = "https://linux.do", flaresolverr_ur
             response_text = result["solution"]["response"]
             status_code = result["solution"]["status"]
 
-            # FlareSolverr 可能返回 HTML（Cloudflare 页面）
+            # FlareSolverr 可能返回 HTML 包裹的 JSON
+            response_text = extract_json_from_html(response_text)
+
+            # 检查是否还是 HTML
             if "<html" in response_text.lower()[:100]:
                 if "Just a moment" in response_text:
                     return {"valid": False, "error": "FlareSolverr 未能绕过 Cloudflare"}
