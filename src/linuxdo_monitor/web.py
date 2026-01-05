@@ -12,53 +12,73 @@ from .cache import get_cache
 logger = logging.getLogger(__name__)
 
 
-def test_cookie(cookie: str, base_url: str = "https://linux.do") -> dict:
+def test_cookie(cookie: str, base_url: str = "https://linux.do", flaresolverr_url: str = None) -> dict:
     """Test if cookie is valid by checking notifications endpoint"""
     try:
-        from curl_cffi import requests
+        # 提取需要的 cookie
+        needed_cookies = {}
+        for item in cookie.split("; "):
+            if "=" in item:
+                k, v = item.split("=", 1)
+                if k in ("_t", "_forum_session"):
+                    needed_cookies[k] = v
 
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Cookie": cookie,
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            "Referer": f"{base_url}/",
-        }
+        url = f"{base_url}/notifications.json"
 
-        # Use /notifications.json - requires login, returns clear error if not logged in
-        response = requests.get(
-            f"{base_url}/notifications.json",
-            headers=headers,
-            timeout=15,
-            impersonate="chrome131"
-        )
+        # 优先使用 FlareSolverr
+        if flaresolverr_url:
+            import requests as std_requests
+            payload = {
+                "cmd": "request.get",
+                "url": url,
+                "maxTimeout": 30000,
+            }
+            if needed_cookies:
+                payload["cookies"] = [{"name": k, "value": v} for k, v in needed_cookies.items()]
 
-        if response.status_code == 200:
-            data = response.json()
-            # If we get here without error, cookie is valid
+            resp = std_requests.post(f"{flaresolverr_url}/v1", json=payload, timeout=60)
+            resp.raise_for_status()
+            result = resp.json()
+
+            if result.get("status") != "ok":
+                return {"valid": False, "error": f"FlareSolverr: {result.get('message')}"}
+
+            response_text = result["solution"]["response"]
+            status_code = result["solution"]["status"]
+        else:
+            # 直接请求
+            from curl_cffi import requests
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                "Cookie": cookie,
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Referer": f"{base_url}/",
+            }
+            response = requests.get(url, headers=headers, timeout=15, impersonate="chrome131")
+            response_text = response.text
+            status_code = response.status_code
+
+        if status_code == 200:
+            data = json.loads(response_text)
             if "errors" in data:
                 error_type = data.get("error_type", "")
                 if error_type == "not_logged_in":
                     return {"valid": False, "error": "Cookie 无效或已过期"}
                 return {"valid": False, "error": data["errors"][0] if data["errors"] else "未知错误"}
-            # Success - cookie is valid
-            return {
-                "valid": True,
-                "message": "Cookie 有效，可以正常访问",
-            }
-        elif response.status_code == 403:
-            return {"valid": False, "error": "被 Cloudflare 拦截，请更新 Cookie"}
+            return {"valid": True, "message": "Cookie 有效，可以正常访问"}
+        elif status_code == 403:
+            return {"valid": False, "error": "被 Cloudflare 拦截，请配置 FlareSolverr"}
         else:
-            # Try to parse error message
             try:
-                data = response.json()
+                data = json.loads(response_text)
                 if data.get("error_type") == "not_logged_in":
                     return {"valid": False, "error": "Cookie 无效或已过期"}
                 if "errors" in data:
                     return {"valid": False, "error": data["errors"][0]}
             except:
                 pass
-            return {"valid": False, "error": f"HTTP {response.status_code}"}
+            return {"valid": False, "error": f"HTTP {status_code}"}
     except Exception as e:
         return {"valid": False, "error": str(e)}
 
@@ -112,11 +132,12 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
             config = self._load_config()
             cookie = config.get("discourse_cookie", "")
             base_url = config.get("discourse_url", "https://linux.do")
+            flaresolverr_url = config.get("flaresolverr_url")
 
             if not cookie:
                 result = {"valid": False, "error": "Cookie 未配置"}
             else:
-                result = test_cookie(cookie, base_url)
+                result = test_cookie(cookie, base_url, flaresolverr_url)
 
             self._send_response(200, json.dumps(result, ensure_ascii=False), "application/json")
             return
@@ -445,11 +466,12 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
             cookie = params.get("cookie", [""])[0]
             config = self._load_config()
             base_url = config.get("discourse_url", "https://linux.do")
+            flaresolverr_url = config.get("flaresolverr_url")
 
             if not cookie:
                 result = {"valid": False, "error": "请输入 Cookie"}
             else:
-                result = test_cookie(cookie, base_url)
+                result = test_cookie(cookie, base_url, flaresolverr_url)
 
             self._send_response(200, json.dumps(result, ensure_ascii=False), "application/json")
             return
