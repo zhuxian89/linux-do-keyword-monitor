@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
+import requests as std_requests
 from curl_cffi import requests
 
 from ..models import Post
@@ -25,13 +26,15 @@ class DiscourseSource(BaseSource):
         base_url: str,
         cookie: str,
         timeout: int = 30,
-        user_agent: Optional[str] = None
+        user_agent: Optional[str] = None,
+        flaresolverr_url: Optional[str] = None
     ):
         # Remove trailing slash
         self.base_url = base_url.rstrip("/")
         self.cookie = cookie
         self.timeout = timeout
         self.user_agent = user_agent or self.DEFAULT_USER_AGENT
+        self.flaresolverr_url = flaresolverr_url
 
     def get_source_name(self) -> str:
         return "Discourse API"
@@ -40,6 +43,46 @@ class DiscourseSource(BaseSource):
         """Fetch posts from Discourse JSON API"""
         url = f"{self.base_url}/latest.json?order=created"
 
+        # 优先使用 FlareSolverr
+        if self.flaresolverr_url:
+            return self._fetch_via_flaresolverr(url)
+        return self._fetch_direct(url)
+
+    def _fetch_via_flaresolverr(self, url: str) -> List[Post]:
+        """通过 FlareSolverr 获取数据"""
+        try:
+            payload = {
+                "cmd": "request.get",
+                "url": url,
+                "maxTimeout": self.timeout * 1000,
+            }
+            if self.cookie:
+                payload["cookies"] = [
+                    {"name": k, "value": v}
+                    for item in self.cookie.split("; ")
+                    for k, v in [item.split("=", 1)]
+                    if k in ("_t", "_forum_session")
+                ]
+
+            resp = std_requests.post(
+                f"{self.flaresolverr_url}/v1",
+                json=payload,
+                timeout=self.timeout + 30
+            )
+            resp.raise_for_status()
+            result = resp.json()
+
+            if result.get("status") != "ok":
+                raise Exception(f"FlareSolverr error: {result.get('message')}")
+
+            data = json.loads(result["solution"]["response"])
+            return self._parse_response(data)
+        except Exception as e:
+            logger.error(f"FlareSolverr 请求失败: {e}")
+            raise
+
+    def _fetch_direct(self, url: str) -> List[Post]:
+        """直接请求（需要有效的 cf_clearance）"""
         headers = {
             "User-Agent": self.user_agent,
             "Cookie": self.cookie,
@@ -49,7 +92,6 @@ class DiscourseSource(BaseSource):
         }
 
         try:
-            # Use curl_cffi with Chrome impersonation to bypass Cloudflare
             response = requests.get(
                 url,
                 headers=headers,

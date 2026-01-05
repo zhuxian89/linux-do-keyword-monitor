@@ -37,7 +37,8 @@ def create_source(config: AppConfig) -> BaseSource:
             raise ValueError("Discourse source requires cookie configuration")
         return DiscourseSource(
             base_url=config.discourse_url,
-            cookie=config.discourse_cookie
+            cookie=config.discourse_cookie,
+            flaresolverr_url=config.flaresolverr_url
         )
     else:
         return RSSSource(url=config.rss_url)

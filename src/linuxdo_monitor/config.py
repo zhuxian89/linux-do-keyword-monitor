@@ -45,6 +45,11 @@ class AppConfig(BaseModel):
         description="Discourse cookie for authentication"
     )
 
+    flaresolverr_url: Optional[str] = Field(
+        default=None,
+        description="FlareSolverr URL for bypassing Cloudflare (e.g. http://localhost:8191)"
+    )
+
     fetch_interval: int = Field(
         default=60,
         description="Fetch interval in seconds"

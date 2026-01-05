@@ -202,6 +202,12 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         </div>
 
         <div class="field">
+            <label>FlareSolverr URL</label>
+            <input type="text" name="flaresolverr_url" value="{config.get('flaresolverr_url', '') or ''}" placeholder="http://localhost:8191">
+            <small>可选，用于绕过 Cloudflare。启动命令: docker run -d -p 8191:8191 ghcr.io/flaresolverr/flaresolverr</small>
+        </div>
+
+        <div class="field">
             <label>管理员 Chat ID</label>
             <input type="number" name="admin_chat_id" value="{config.get('admin_chat_id', '') or ''}" placeholder="可选，用于接收系统告警">
             <small>Cookie 失效时会发送告警到此 ID。可通过 @userinfobot 获取你的 Chat ID</small>
@@ -469,6 +475,9 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
                     pass
             else:
                 config["admin_chat_id"] = None
+        if "flaresolverr_url" in params:
+            url = params["flaresolverr_url"][0].strip()
+            config["flaresolverr_url"] = url if url else None
 
         self._save_config(config)
 
