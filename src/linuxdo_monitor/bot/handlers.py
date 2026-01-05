@@ -5,6 +5,7 @@ from telegram.ext import ContextTypes
 
 from ..cache import get_cache
 from ..database import Database
+from ..matcher.keyword import is_regex_pattern, validate_regex
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,8 @@ class BotHandlers:
         """Handle /start command - register user"""
         chat_id = update.effective_chat.id
         self.db.add_user(chat_id)
+        # 用户回来了，清除封禁标记
+        self.db.unmark_user_blocked(chat_id)
         # Clear all cache on user registration for safety
         self.cache.clear_all()
 
@@ -65,6 +68,12 @@ class BotHandlers:
             "/subscribe <关键词> - 订阅关键词（不区分大小写）\n"
             "/unsubscribe <关键词> - 取消订阅\n"
             "/list - 查看我的订阅列表\n\n"
+            "🔤 正则表达式：\n"
+            "支持正则匹配，例如：\n"
+            "• \\bopenai\\b - 精确匹配 openai 单词\n"
+            "• gpt-?4 - 匹配 gpt4 或 gpt-4\n"
+            "• (免费|白嫖) - 匹配 免费 或 白嫖\n"
+            "💡 可用 AI 工具帮你生成正则\n\n"
             "👤 用户订阅：\n"
             "/subscribe_user <用户名> - 订阅某用户的所有帖子\n"
             "/unsubscribe_user <用户名> - 取消订阅用户\n"
@@ -95,6 +104,16 @@ class BotHandlers:
             await update.message.reply_text("❌ 关键词不能为空")
             return
 
+        # 检查是否是正则表达式，如果是则验证
+        if is_regex_pattern(keyword):
+            is_valid, error_msg = validate_regex(keyword)
+            if not is_valid:
+                await update.message.reply_text(
+                    f"❌ 正则表达式无效：{error_msg}\n\n"
+                    "💡 提示：可以使用 AI 工具帮你生成正则表达式"
+                )
+                return
+
         # Check keyword limit
         current_subscriptions = self.db.get_user_subscriptions(chat_id)
         if len(current_subscriptions) >= MAX_KEYWORDS_PER_USER:
@@ -111,8 +130,10 @@ class BotHandlers:
             self.cache.invalidate_subscribers(keyword)
 
             remaining = MAX_KEYWORDS_PER_USER - len(current_subscriptions) - 1
+            # 提示用户是否使用了正则
+            pattern_hint = "（正则模式）" if is_regex_pattern(keyword) else ""
             await update.message.reply_text(
-                f"✅ 成功订阅关键词：{keyword}\n"
+                f"✅ 成功订阅关键词{pattern_hint}：{keyword}\n"
                 f"📊 剩余可订阅：{remaining} 个"
             )
         else:
@@ -315,7 +336,8 @@ class BotHandlers:
             f"📝 总订阅数：{stats['subscription_count']}\n"
             f"🌟 订阅全部：{stats['subscribe_all_count']}\n"
             f"📰 已处理帖子：{stats['post_count']}\n"
-            f"📤 已发送通知：{stats['notification_count']}"
+            f"📤 已发送通知：{stats['notification_count']}\n"
+            f"🚫 已封禁Bot：{stats['blocked_count']}"
         )
 
     async def unknown_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

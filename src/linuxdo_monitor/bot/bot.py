@@ -2,6 +2,7 @@ import asyncio
 import logging
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram.constants import ParseMode
+from telegram.error import Forbidden, TelegramError
 
 from ..database import Database
 from .handlers import BotHandlers
@@ -47,7 +48,11 @@ class TelegramBot:
         return self.application
 
     async def send_notification(self, chat_id: int, title: str, link: str, keyword: str) -> bool:
-        """Send notification to a user with styled message"""
+        """Send notification to a user with styled message
+
+        Returns:
+            True if sent successfully, False if failed, None if user blocked bot
+        """
         try:
             # Format message with HTML for better styling
             message = (
@@ -65,12 +70,21 @@ class TelegramBot:
                 disable_web_page_preview=False
             )
             return True
-        except Exception as e:
-            logger.error(f"Failed to send notification to {chat_id}: {e}")
+        except Forbidden:
+            # 用户封禁了 Bot
+            logger.debug(f"用户 {chat_id} 已封禁 Bot")
+            self.db.mark_user_blocked(chat_id)
+            return False
+        except TelegramError as e:
+            logger.error(f"发送通知失败 {chat_id}: {e}")
             return False
 
     async def send_notification_all(self, chat_id: int, title: str, link: str) -> bool:
-        """Send notification for subscribe_all users"""
+        """Send notification for subscribe_all users
+
+        Returns:
+            True if sent successfully, False if failed
+        """
         try:
             message = (
                 f"📢 <b>Linux.do 新帖</b>\n"
@@ -86,8 +100,13 @@ class TelegramBot:
                 disable_web_page_preview=False
             )
             return True
-        except Exception as e:
-            logger.error(f"Failed to send notification to {chat_id}: {e}")
+        except Forbidden:
+            # 用户封禁了 Bot
+            logger.debug(f"用户 {chat_id} 已封禁 Bot")
+            self.db.mark_user_blocked(chat_id)
+            return False
+        except TelegramError as e:
+            logger.error(f"发送通知失败 {chat_id}: {e}")
             return False
 
     async def send_admin_alert(self, chat_id: int, message: str) -> bool:

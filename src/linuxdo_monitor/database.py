@@ -95,6 +95,12 @@ class Database:
                     ON user_subscriptions(chat_id);
                 CREATE INDEX IF NOT EXISTS idx_user_subscriptions_author
                     ON user_subscriptions(author);
+
+                -- Blocked users table (users who blocked the bot)
+                CREATE TABLE IF NOT EXISTS blocked_users (
+                    chat_id INTEGER PRIMARY KEY,
+                    blocked_at TEXT NOT NULL
+                );
             """)
 
             # Migration: Add author column to posts table if not exists
@@ -415,6 +421,7 @@ class Database:
             post_count = conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
             notification_count = conn.execute("SELECT COUNT(*) FROM notifications").fetchone()[0]
             keyword_count = conn.execute("SELECT COUNT(DISTINCT keyword) FROM subscriptions").fetchone()[0]
+            blocked_count = conn.execute("SELECT COUNT(*) FROM blocked_users").fetchone()[0]
         return {
             "user_count": user_count,
             "subscription_count": subscription_count,
@@ -422,4 +429,41 @@ class Database:
             "post_count": post_count,
             "notification_count": notification_count,
             "keyword_count": keyword_count,
+            "blocked_count": blocked_count,
         }
+
+    # Blocked users operations
+    def mark_user_blocked(self, chat_id: int) -> bool:
+        """Mark a user as having blocked the bot"""
+        now = datetime.now().isoformat()
+        with self._get_conn() as conn:
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO blocked_users (chat_id, blocked_at) VALUES (?, ?)",
+                    (chat_id, now)
+                )
+                return True
+            except sqlite3.IntegrityError:
+                return False
+
+    def unmark_user_blocked(self, chat_id: int) -> bool:
+        """Remove user from blocked list (when they unblock the bot)"""
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "DELETE FROM blocked_users WHERE chat_id = ?", (chat_id,)
+            )
+        return cursor.rowcount > 0
+
+    def is_user_blocked(self, chat_id: int) -> bool:
+        """Check if user has blocked the bot"""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM blocked_users WHERE chat_id = ?", (chat_id,)
+            ).fetchone()
+        return row is not None
+
+    def get_blocked_user_count(self) -> int:
+        """Get count of users who blocked the bot"""
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT COUNT(*) FROM blocked_users").fetchone()
+        return row[0]
