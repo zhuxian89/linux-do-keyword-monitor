@@ -55,7 +55,7 @@ def validate_regex(pattern: str) -> Tuple[bool, Optional[str]]:
 
     # 尝试编译
     try:
-        re.compile(pattern, re.IGNORECASE)
+        re.compile(pattern, re.IGNORECASE | re.ASCII)
         return True, None
     except re.error as e:
         return False, f"正则语法错误: {e}"
@@ -72,10 +72,14 @@ class KeywordMatcher(BaseMatcher):
     _regex_cache: dict = {}
 
     def _get_compiled_regex(self, pattern: str) -> Optional[re.Pattern]:
-        """获取编译后的正则表达式（带缓存）"""
+        """获取编译后的正则表达式（带缓存）
+
+        使用 re.ASCII 确保 \\b 只匹配 ASCII 单词边界，
+        这样中文字符不会被视为单词字符，\\bai\\b 可以匹配 "中文AI中文"
+        """
         if pattern not in self._regex_cache:
             try:
-                self._regex_cache[pattern] = re.compile(pattern, re.IGNORECASE)
+                self._regex_cache[pattern] = re.compile(pattern, re.IGNORECASE | re.ASCII)
             except re.error:
                 self._regex_cache[pattern] = None
         return self._regex_cache[pattern]
