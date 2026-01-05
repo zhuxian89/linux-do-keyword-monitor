@@ -116,8 +116,7 @@ class TelegramBot:
             True if sent successfully, False if failed
         """
         message = (
-            f"🔔 <b>Linux.do 新帖提醒</b>\n"
-            f"━━━━━━━━━━━━━━━\n\n"
+            f"🔔 <b>Linux.do 新帖提醒</b>\n\n"
             f"📌 <b>匹配关键词</b>：<code>{keyword}</code>\n\n"
             f"📝 <b>标题</b>\n"
             f"{title}\n\n"
@@ -132,8 +131,7 @@ class TelegramBot:
             True if sent successfully, False if failed
         """
         message = (
-            f"📢 <b>Linux.do 新帖</b>\n"
-            f"━━━━━━━━━━━━━━━\n\n"
+            f"📢 <b>Linux.do 新帖</b>\n\n"
             f"📝 <b>标题</b>\n"
             f"{title}\n\n"
             f"🔗 <a href=\"{link}\">点击查看原帖 →</a>"
@@ -143,8 +141,7 @@ class TelegramBot:
     async def send_admin_alert(self, chat_id: int, message: str) -> bool:
         """Send admin alert message"""
         alert_message = (
-            f"🚨 <b>系统告警</b>\n"
-            f"━━━━━━━━━━━━━━━\n\n"
+            f"🚨 <b>系统告警</b>\n\n"
             f"{message}"
         )
         return await self._send_with_retry(chat_id, alert_message, disable_preview=True)
