@@ -190,7 +190,7 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         <div class="field">
             <label>Discourse Cookie</label>
             <textarea name="discourse_cookie" id="cookie-input" placeholder="粘贴完整的 Cookie 值...">{config.get('discourse_cookie', '')}</textarea>
-            <small>从浏览器开发者工具复制完整 Cookie</small>
+            <small>直接粘贴浏览器完整 Cookie，系统会自动提取需要的字段</small>
             <br>
             <button type="button" class="btn-test" onclick="testCookie()">测试 Cookie 有效性</button>
             <div id="test-result"></div>
