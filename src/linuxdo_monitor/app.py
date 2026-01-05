@@ -114,28 +114,35 @@ class Application:
         if self.config.source_type != SourceType.DISCOURSE:
             return
 
-        if not self._check_cookie_valid():
-            self._cookie_fail_count += 1
-            logger.debug(f"Cookie 检测失败，连续失败次数: {self._cookie_fail_count}/{self._cookie_fail_threshold}")
+        # 连续测试 3 次
+        fail_count = 0
+        for i in range(3):
+            if not self._check_cookie_valid():
+                fail_count += 1
+                if i < 2:  # 前两次失败后等待 2 秒再试
+                    import asyncio
+                    await asyncio.sleep(2)
+            else:
+                break
 
-            if self._cookie_fail_count % self._cookie_fail_threshold == 0:
-                self._cookie_notify_round += 1
-                logger.warning(f"⚠️ Cookie 连续 {self._cookie_fail_count} 次检测失败，第 {self._cookie_notify_round} 轮通知")
-                for i in range(1, 4):
-                    await self._notify_admin(
-                        f"⚠️ Cookie 可能已失效（第 {self._cookie_notify_round} 轮通知，第 {i}/3 遍）\n\n"
-                        f"Discourse Cookie 连续 {self._cookie_fail_count} 次验证失败。\n"
-                        f"当前仍可拉取公开数据，但部分限制内容可能无法获取。\n\n"
-                        f"{'❗' * i} 请检查 Cookie 是否需要更新 {'❗' * i}\n\n"
-                        f"更新方式：访问配置页面更新 Cookie"
-                    )
+        if fail_count == 3:
+            # 3 次都失败，通知管理员
+            self._cookie_fail_count += 1
+            logger.warning(f"⚠️ Cookie 连续 3 次检测失败（第 {self._cookie_fail_count} 轮）")
+            for i in range(1, 4):
+                await self._notify_admin(
+                    f"⚠️ Cookie 可能已失效（第 {self._cookie_fail_count} 轮通知，第 {i}/3 遍）\n\n"
+                    f"Discourse Cookie 连续 3 次验证失败。\n"
+                    f"当前仍可拉取公开数据，但部分限制内容可能无法获取。\n\n"
+                    f"{'❗' * i} 请检查 Cookie 是否需要更新 {'❗' * i}\n\n"
+                    f"更新方式：访问配置页面更新 Cookie"
+                )
         else:
+            # 检测通过
             if self._cookie_fail_count > 0:
-                logger.info(f"✅ Cookie 检测恢复正常（之前连续失败 {self._cookie_fail_count} 次）")
-                if self._cookie_notify_round > 0:
-                    await self._notify_admin("✅ Cookie 已恢复有效，之前的告警可以忽略了")
-            self._cookie_fail_count = 0
-            self._cookie_notify_round = 0
+                logger.info(f"✅ Cookie 检测恢复正常（之前失败 {self._cookie_fail_count} 轮）")
+                await self._notify_admin("✅ Cookie 已恢复有效，之前的告警可以忽略了")
+                self._cookie_fail_count = 0
 
     def _get_keywords_cached(self) -> List[str]:
         """Get keywords with caching"""
