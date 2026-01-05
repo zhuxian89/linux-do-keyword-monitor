@@ -482,7 +482,7 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         content_length = int(self.headers.get("Content-Length", 0))
         post_data = self.rfile.read(content_length).decode("utf-8")
-        params = parse_qs(post_data)
+        params = parse_qs(post_data, keep_blank_values=True)
 
         # Test cookie endpoint (POST tests provided cookie from input)
         if path == "/test-cookie":
