@@ -102,7 +102,7 @@ class Application:
         if not self.config.discourse_cookie:
             return False
 
-        result = test_cookie(self.config.discourse_cookie, self.config.discourse_url)
+        result = test_cookie(self.config.discourse_cookie, self.config.discourse_url, self.config.flaresolverr_url)
         return result.get("valid", False)
 
     def _fallback_to_rss(self) -> BaseSource:
