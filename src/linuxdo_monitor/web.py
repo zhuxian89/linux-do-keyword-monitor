@@ -460,7 +460,21 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         if "source_type" in params:
             config["source_type"] = params["source_type"][0]
         if "discourse_cookie" in params:
-            config["discourse_cookie"] = params["discourse_cookie"][0]
+            raw_cookie = params["discourse_cookie"][0]
+            # 自动提取需要的 cookie 字段
+            if raw_cookie:
+                needed = {}
+                for item in raw_cookie.split("; "):
+                    if "=" in item:
+                        k, v = item.split("=", 1)
+                        if k in ("_t", "_forum_session"):
+                            needed[k] = v
+                if needed:
+                    config["discourse_cookie"] = "; ".join(f"{k}={v}" for k, v in needed.items())
+                else:
+                    config["discourse_cookie"] = raw_cookie  # 没找到就保留原始
+            else:
+                config["discourse_cookie"] = ""
         if "fetch_interval" in params:
             try:
                 config["fetch_interval"] = int(params["fetch_interval"][0])
