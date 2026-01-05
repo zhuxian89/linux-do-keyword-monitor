@@ -50,6 +50,11 @@ class AppConfig(BaseModel):
         description="FlareSolverr URL for bypassing Cloudflare (e.g. http://localhost:8191)"
     )
 
+    cookie_check_interval: int = Field(
+        default=300,
+        description="Cookie check interval in seconds (0 to disable)"
+    )
+
     fetch_interval: int = Field(
         default=60,
         description="Fetch interval in seconds"

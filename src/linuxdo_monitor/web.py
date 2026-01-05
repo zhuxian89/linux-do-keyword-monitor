@@ -252,6 +252,12 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         </div>
 
         <div class="field">
+            <label>Cookie 检测间隔 (秒)</label>
+            <input type="number" name="cookie_check_interval" value="{config.get('cookie_check_interval', 300)}" placeholder="300">
+            <small>独立检测 Cookie 有效性的间隔，0 表示禁用</small>
+        </div>
+
+        <div class="field">
             <label>管理员 Chat ID</label>
             <input type="number" name="admin_chat_id" value="{config.get('admin_chat_id', '') or ''}" placeholder="可选，用于接收系统告警">
             <small>Cookie 失效时会发送告警到此 ID。可通过 @userinfobot 获取你的 Chat ID</small>
@@ -537,6 +543,11 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         if "flaresolverr_url" in params:
             url = params["flaresolverr_url"][0].strip()
             config["flaresolverr_url"] = url if url else None
+        if "cookie_check_interval" in params:
+            try:
+                config["cookie_check_interval"] = int(params["cookie_check_interval"][0])
+            except ValueError:
+                pass
 
         self._save_config(config)
 
