@@ -2,7 +2,8 @@ import asyncio
 import logging
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram.constants import ParseMode
-from telegram.error import Forbidden, TelegramError
+from telegram.error import Forbidden, TelegramError, TimedOut, NetworkError
+from telegram.request import HTTPXRequest
 
 from ..database import Database
 from .handlers import BotHandlers
@@ -11,6 +12,16 @@ logger = logging.getLogger(__name__)
 
 # Message send interval in seconds
 MESSAGE_INTERVAL = 1
+
+# Telegram API 超时配置
+CONNECT_TIMEOUT = 30.0  # 连接超时（秒）
+READ_TIMEOUT = 30.0     # 读取超时（秒）
+WRITE_TIMEOUT = 30.0    # 写入超时（秒）
+POOL_TIMEOUT = 10.0     # 连接池超时（秒）
+
+# 重试配置
+MAX_RETRIES = 3         # 最大重试次数
+RETRY_DELAY = 2.0       # 重试间隔（秒）
 
 
 class TelegramBot:
@@ -24,7 +35,20 @@ class TelegramBot:
 
     def setup(self) -> Application:
         """Setup bot application with handlers"""
-        self.application = Application.builder().token(self.token).build()
+        # 配置自定义超时的 HTTP 请求
+        request = HTTPXRequest(
+            connect_timeout=CONNECT_TIMEOUT,
+            read_timeout=READ_TIMEOUT,
+            write_timeout=WRITE_TIMEOUT,
+            pool_timeout=POOL_TIMEOUT,
+        )
+
+        self.application = (
+            Application.builder()
+            .token(self.token)
+            .request(request)
+            .build()
+        )
 
         # Register command handlers
         self.application.add_handler(CommandHandler("start", self.handlers.start))
@@ -47,37 +71,59 @@ class TelegramBot:
 
         return self.application
 
+    async def _send_with_retry(self, chat_id: int, message: str, disable_preview: bool = False) -> bool:
+        """带重试机制的消息发送
+
+        Returns:
+            True: 发送成功
+            False: 发送失败（用户封禁或其他错误）
+        """
+        last_error = None
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                await self.application.bot.send_message(
+                    chat_id=chat_id,
+                    text=message,
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=disable_preview
+                )
+                return True
+            except Forbidden:
+                # 用户封禁了 Bot，不需要重试
+                logger.debug(f"用户 {chat_id} 已封禁 Bot")
+                self.db.mark_user_blocked(chat_id)
+                return False
+            except (TimedOut, NetworkError) as e:
+                # 网络问题，重试
+                last_error = e
+                if attempt < MAX_RETRIES - 1:
+                    logger.warning(f"发送超时 {chat_id}，第 {attempt + 1} 次重试...")
+                    await asyncio.sleep(RETRY_DELAY)
+            except TelegramError as e:
+                # 其他 Telegram 错误，不重试
+                logger.error(f"发送失败 {chat_id}: {e}")
+                return False
+
+        # 所有重试都失败
+        logger.error(f"发送失败 {chat_id}，已重试 {MAX_RETRIES} 次: {last_error}")
+        return False
+
     async def send_notification(self, chat_id: int, title: str, link: str, keyword: str) -> bool:
         """Send notification to a user with styled message
 
         Returns:
-            True if sent successfully, False if failed, None if user blocked bot
+            True if sent successfully, False if failed
         """
-        try:
-            # Format message with HTML for better styling
-            message = (
-                f"🔔 <b>Linux.do 新帖提醒</b>\n"
-                f"━━━━━━━━━━━━━━━\n\n"
-                f"📌 <b>匹配关键词</b>：<code>{keyword}</code>\n\n"
-                f"📝 <b>标题</b>\n"
-                f"{title}\n\n"
-                f"🔗 <a href=\"{link}\">点击查看原帖 →</a>"
-            )
-            await self.application.bot.send_message(
-                chat_id=chat_id,
-                text=message,
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=False
-            )
-            return True
-        except Forbidden:
-            # 用户封禁了 Bot
-            logger.debug(f"用户 {chat_id} 已封禁 Bot")
-            self.db.mark_user_blocked(chat_id)
-            return False
-        except TelegramError as e:
-            logger.error(f"发送通知失败 {chat_id}: {e}")
-            return False
+        message = (
+            f"🔔 <b>Linux.do 新帖提醒</b>\n"
+            f"━━━━━━━━━━━━━━━\n\n"
+            f"📌 <b>匹配关键词</b>：<code>{keyword}</code>\n\n"
+            f"📝 <b>标题</b>\n"
+            f"{title}\n\n"
+            f"🔗 <a href=\"{link}\">点击查看原帖 →</a>"
+        )
+        return await self._send_with_retry(chat_id, message, disable_preview=False)
 
     async def send_notification_all(self, chat_id: int, title: str, link: str) -> bool:
         """Send notification for subscribe_all users
@@ -85,45 +131,20 @@ class TelegramBot:
         Returns:
             True if sent successfully, False if failed
         """
-        try:
-            message = (
-                f"📢 <b>Linux.do 新帖</b>\n"
-                f"━━━━━━━━━━━━━━━\n\n"
-                f"📝 <b>标题</b>\n"
-                f"{title}\n\n"
-                f"🔗 <a href=\"{link}\">点击查看原帖 →</a>"
-            )
-            await self.application.bot.send_message(
-                chat_id=chat_id,
-                text=message,
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=False
-            )
-            return True
-        except Forbidden:
-            # 用户封禁了 Bot
-            logger.debug(f"用户 {chat_id} 已封禁 Bot")
-            self.db.mark_user_blocked(chat_id)
-            return False
-        except TelegramError as e:
-            logger.error(f"发送通知失败 {chat_id}: {e}")
-            return False
+        message = (
+            f"📢 <b>Linux.do 新帖</b>\n"
+            f"━━━━━━━━━━━━━━━\n\n"
+            f"📝 <b>标题</b>\n"
+            f"{title}\n\n"
+            f"🔗 <a href=\"{link}\">点击查看原帖 →</a>"
+        )
+        return await self._send_with_retry(chat_id, message, disable_preview=False)
 
     async def send_admin_alert(self, chat_id: int, message: str) -> bool:
         """Send admin alert message"""
-        try:
-            alert_message = (
-                f"🚨 <b>系统告警</b>\n"
-                f"━━━━━━━━━━━━━━━\n\n"
-                f"{message}"
-            )
-            await self.application.bot.send_message(
-                chat_id=chat_id,
-                text=alert_message,
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=True
-            )
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send admin alert to {chat_id}: {e}")
-            return False
+        alert_message = (
+            f"🚨 <b>系统告警</b>\n"
+            f"━━━━━━━━━━━━━━━\n\n"
+            f"{message}"
+        )
+        return await self._send_with_retry(chat_id, alert_message, disable_preview=True)
