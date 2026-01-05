@@ -32,6 +32,7 @@ def test_cookie(cookie: str, base_url: str = "https://linux.do", flaresolverr_ur
                 "cmd": "request.get",
                 "url": url,
                 "maxTimeout": 30000,
+                "headers": {"Accept": "application/json"},
             }
             if needed_cookies:
                 payload["cookies"] = [{"name": k, "value": v} for k, v in needed_cookies.items()]
@@ -45,6 +46,12 @@ def test_cookie(cookie: str, base_url: str = "https://linux.do", flaresolverr_ur
 
             response_text = result["solution"]["response"]
             status_code = result["solution"]["status"]
+
+            # FlareSolverr 可能返回 HTML（Cloudflare 页面）
+            if "<html" in response_text.lower()[:100]:
+                if "Just a moment" in response_text:
+                    return {"valid": False, "error": "FlareSolverr 未能绕过 Cloudflare"}
+                return {"valid": False, "error": "返回了 HTML 而非 JSON"}
         else:
             # 直接请求
             from curl_cffi import requests
@@ -79,6 +86,8 @@ def test_cookie(cookie: str, base_url: str = "https://linux.do", flaresolverr_ur
             except:
                 pass
             return {"valid": False, "error": f"HTTP {status_code}"}
+    except json.JSONDecodeError as e:
+        return {"valid": False, "error": f"JSON 解析失败，可能返回了 HTML 页面"}
     except Exception as e:
         return {"valid": False, "error": str(e)}
 

@@ -55,6 +55,7 @@ class DiscourseSource(BaseSource):
                 "cmd": "request.get",
                 "url": url,
                 "maxTimeout": self.timeout * 1000,
+                "headers": {"Accept": "application/json"},
             }
             if self.cookie:
                 payload["cookies"] = [
