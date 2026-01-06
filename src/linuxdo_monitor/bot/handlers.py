@@ -1,6 +1,6 @@
 import logging
 from functools import wraps
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from ..cache import get_cache
@@ -13,6 +13,11 @@ logger = logging.getLogger(__name__)
 MAX_KEYWORDS_PER_USER = 5
 # Maximum authors per user
 MAX_AUTHORS_PER_USER = 5
+# Maximum keyword length (callback_data limit is 64 bytes, prefix "del_kw:" is 7 bytes)
+MAX_KEYWORD_LENGTH = 50
+
+# 推荐关键词（用于快捷订阅）
+RECOMMENDED_KEYWORDS = ["claude", "ai", "kiro", "gemini", "公益"]
 
 
 def require_registration(func):
@@ -45,6 +50,12 @@ class BotHandlers:
         # Clear all cache on user registration for safety
         self.cache.clear_all()
 
+        # 快捷订阅按钮
+        keyboard = [
+            [InlineKeyboardButton(kw, callback_data=f"quick_kw:{kw}") for kw in RECOMMENDED_KEYWORDS[:3]],
+            [InlineKeyboardButton(kw, callback_data=f"quick_kw:{kw}") for kw in RECOMMENDED_KEYWORDS[3:]]
+        ]
+
         await update.message.reply_text(
             "👋 欢迎使用 Linux.do 关键词监控机器人！\n\n"
             "📝 使用方法：\n"
@@ -54,7 +65,8 @@ class BotHandlers:
             "/unsubscribe_all - 取消订阅所有\n"
             "/list - 查看我的订阅\n"
             "/help - 帮助信息\n\n"
-            "当 Linux.do 有新帖子标题包含您订阅的关键词时，我会第一时间通知您！"
+            "⚡ 快捷订阅热门关键词：",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -104,6 +116,14 @@ class BotHandlers:
             await update.message.reply_text("❌ 关键词不能为空")
             return
 
+        # 检查关键词长度
+        if len(keyword.encode('utf-8')) > MAX_KEYWORD_LENGTH:
+            await update.message.reply_text(
+                f"❌ 关键词过长，最多支持 {MAX_KEYWORD_LENGTH} 字节\n\n"
+                "💡 建议使用更简短的关键词或正则表达式"
+            )
+            return
+
         # 检查是否是正则表达式，如果是则验证
         if is_regex_pattern(keyword):
             is_valid, error_msg = validate_regex(keyword)
@@ -129,13 +149,12 @@ class BotHandlers:
             self.cache.invalidate_keywords()
             self.cache.invalidate_subscribers(keyword)
 
-            remaining = MAX_KEYWORDS_PER_USER - len(current_subscriptions) - 1
             # 提示用户是否使用了正则
             pattern_hint = "（正则模式）" if is_regex_pattern(keyword) else ""
-            await update.message.reply_text(
-                f"✅ 成功订阅关键词{pattern_hint}：{keyword}\n"
-                f"📊 剩余可订阅：{remaining} 个"
-            )
+            await update.message.reply_text(f"✅ 成功订阅关键词{pattern_hint}：{keyword}")
+            # 自动展示订阅列表
+            text, keyboard = self._build_keyword_list_message(chat_id)
+            await update.message.reply_text(text, reply_markup=keyboard)
         else:
             await update.message.reply_text(f"⚠️ 您已经订阅了关键词：{keyword}")
 
@@ -163,10 +182,8 @@ class BotHandlers:
         else:
             await update.message.reply_text(f"⚠️ 您没有订阅关键词：{keyword}")
 
-    @require_registration
-    async def list_subscriptions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /list command"""
-        chat_id = update.effective_chat.id
+    def _build_keyword_list_message(self, chat_id: int) -> tuple[str, InlineKeyboardMarkup | None]:
+        """Build keyword list message with inline keyboard"""
         subscriptions = self.db.get_user_subscriptions(chat_id)
         is_subscribe_all = self.db.is_subscribe_all(chat_id)
 
@@ -176,21 +193,40 @@ class BotHandlers:
 
         if subscriptions:
             keywords = [sub.keyword for sub in subscriptions]
-            keyword_list = "\n".join(f"  • {kw}" for kw in keywords)
             remaining = MAX_KEYWORDS_PER_USER - len(keywords)
-            lines.append(
-                f"📋 关键词订阅（{len(keywords)}/{MAX_KEYWORDS_PER_USER}）：\n{keyword_list}\n"
-                f"📊 剩余可订阅：{remaining} 个"
-            )
+            lines.append(f"📋 关键词订阅（{len(keywords)}/{MAX_KEYWORDS_PER_USER}）：")
+
+            # Build inline keyboard with delete buttons
+            keyboard = []
+            for kw in keywords:
+                display = kw if len(kw) <= 20 else kw[:17] + "..."
+                keyboard.append([
+                    InlineKeyboardButton(f"• {display}", callback_data="noop"),
+                    InlineKeyboardButton("❌", callback_data=f"del_kw:{kw}")
+                ])
+
+            lines.append(f"📊 剩余可订阅：{remaining} 个")
+            return "\n".join(lines), InlineKeyboardMarkup(keyboard)
 
         if not lines:
-            await update.message.reply_text(
+            # 空状态引导：显示推荐关键词按钮
+            keyboard = [
+                [InlineKeyboardButton(kw, callback_data=f"quick_kw:{kw}") for kw in RECOMMENDED_KEYWORDS[:3]],
+                [InlineKeyboardButton(kw, callback_data=f"quick_kw:{kw}") for kw in RECOMMENDED_KEYWORDS[3:]]
+            ]
+            return (
                 "📭 您还没有订阅任何关键词\n\n"
-                f"使用 /subscribe <关键词> 开始订阅（最多 {MAX_KEYWORDS_PER_USER} 个）"
-            )
-            return
+                "⚡ 点击下方按钮快速订阅："
+            ), InlineKeyboardMarkup(keyboard)
 
-        await update.message.reply_text("\n\n".join(lines))
+        return "\n".join(lines), None
+
+    @require_registration
+    async def list_subscriptions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /list command"""
+        chat_id = update.effective_chat.id
+        text, keyboard = self._build_keyword_list_message(chat_id)
+        await update.message.reply_text(text, reply_markup=keyboard)
 
     @require_registration
     async def subscribe_all(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -263,12 +299,10 @@ class BotHandlers:
             self.cache.invalidate_authors()
             self.cache.invalidate_author_subscribers(author.lower())
 
-            remaining = MAX_AUTHORS_PER_USER - current_count - 1
-            await update.message.reply_text(
-                f"✅ 成功订阅用户：{author}\n"
-                f"📊 剩余可订阅用户：{remaining} 个\n\n"
-                f"当 {author} 发布新帖子时，您将收到通知。"
-            )
+            await update.message.reply_text(f"✅ 成功订阅用户：{author}")
+            # 自动展示用户订阅列表
+            text, keyboard = self._build_user_list_message(chat_id)
+            await update.message.reply_text(text, reply_markup=keyboard)
         else:
             await update.message.reply_text(f"⚠️ 您已经订阅了用户：{author}")
 
@@ -304,25 +338,35 @@ class BotHandlers:
         else:
             await update.message.reply_text(f"⚠️ 您没有订阅用户：{author}")
 
+    def _build_user_list_message(self, chat_id: int) -> tuple[str, InlineKeyboardMarkup | None]:
+        """Build user list message with inline keyboard"""
+        authors = self.db.get_user_author_subscriptions(chat_id)
+
+        if not authors:
+            return (
+                "📭 您还没有订阅任何用户\n\n"
+                f"使用 /subscribe_user <用户名> 开始订阅（最多 {MAX_AUTHORS_PER_USER} 个）"
+            ), None
+
+        remaining = MAX_AUTHORS_PER_USER - len(authors)
+        text = f"👤 已订阅用户（{len(authors)}/{MAX_AUTHORS_PER_USER}）：\n📊 剩余可订阅：{remaining} 个"
+
+        keyboard = []
+        for author in authors:
+            display = author if len(author) <= 20 else author[:17] + "..."
+            keyboard.append([
+                InlineKeyboardButton(f"• {display}", callback_data="noop"),
+                InlineKeyboardButton("❌", callback_data=f"del_user:{author}")
+            ])
+
+        return text, InlineKeyboardMarkup(keyboard)
+
     @require_registration
     async def list_users(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /list_users command - list subscribed authors"""
         chat_id = update.effective_chat.id
-        authors = self.db.get_user_author_subscriptions(chat_id)
-
-        if not authors:
-            await update.message.reply_text(
-                "📭 您还没有订阅任何用户\n\n"
-                f"使用 /subscribe_user <用户名> 开始订阅（最多 {MAX_AUTHORS_PER_USER} 个）"
-            )
-            return
-
-        author_list = "\n".join(f"  • {author}" for author in authors)
-        remaining = MAX_AUTHORS_PER_USER - len(authors)
-        await update.message.reply_text(
-            f"👤 已订阅用户（{len(authors)}/{MAX_AUTHORS_PER_USER}）：\n{author_list}\n\n"
-            f"📊 剩余可订阅：{remaining} 个"
-        )
+        text, keyboard = self._build_user_list_message(chat_id)
+        await update.message.reply_text(text, reply_markup=keyboard)
 
     @require_registration
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -353,3 +397,69 @@ class BotHandlers:
             "❓ 无法识别的消息\n\n"
             "请输入 /help 查看支持的命令列表"
         )
+
+    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle inline keyboard button callbacks"""
+        query = update.callback_query
+        await query.answer()
+
+        if query.data == "noop":
+            return
+
+        chat_id = query.message.chat_id
+
+        # 删除关键词确认
+        if query.data.startswith("del_kw:"):
+            keyword = query.data[7:]
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ 确认删除", callback_data=f"confirm_kw:{keyword}"),
+                    InlineKeyboardButton("❌ 取消", callback_data="cancel_kw")
+                ]
+            ])
+            display = keyword if len(keyword) <= 20 else keyword[:17] + "..."
+            await query.edit_message_text(f"确认删除关键词「{display}」？", reply_markup=keyboard)
+
+        elif query.data.startswith("confirm_kw:"):
+            keyword = query.data[11:]
+            if self.db.remove_subscription(chat_id, keyword):
+                self.cache.invalidate_keywords()
+                self.cache.invalidate_subscribers(keyword)
+            text, keyboard = self._build_keyword_list_message(chat_id)
+            await query.edit_message_text(text, reply_markup=keyboard)
+
+        elif query.data == "cancel_kw":
+            text, keyboard = self._build_keyword_list_message(chat_id)
+            await query.edit_message_text(text, reply_markup=keyboard)
+
+        # 删除用户确认
+        elif query.data.startswith("del_user:"):
+            author = query.data[9:]
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ 确认删除", callback_data=f"confirm_user:{author}"),
+                    InlineKeyboardButton("❌ 取消", callback_data="cancel_user")
+                ]
+            ])
+            await query.edit_message_text(f"确认删除用户「{author}」？", reply_markup=keyboard)
+
+        elif query.data.startswith("confirm_user:"):
+            author = query.data[13:]
+            if self.db.remove_user_subscription(chat_id, author):
+                self.cache.invalidate_authors()
+                self.cache.invalidate_author_subscribers(author.lower())
+            text, keyboard = self._build_user_list_message(chat_id)
+            await query.edit_message_text(text, reply_markup=keyboard)
+
+        elif query.data == "cancel_user":
+            text, keyboard = self._build_user_list_message(chat_id)
+            await query.edit_message_text(text, reply_markup=keyboard)
+
+        # 快捷订阅关键词
+        elif query.data.startswith("quick_kw:"):
+            keyword = query.data[9:]
+            if self.db.add_subscription(chat_id, keyword):
+                self.cache.invalidate_keywords()
+                self.cache.invalidate_subscribers(keyword)
+            text, keyboard = self._build_keyword_list_message(chat_id)
+            await query.edit_message_text(text, reply_markup=keyboard)

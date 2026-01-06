@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from telegram.constants import ParseMode
 from telegram.error import Forbidden, TelegramError, TimedOut, NetworkError
 from telegram.request import HTTPXRequest
@@ -68,6 +68,9 @@ class TelegramBot:
 
         # Handle unknown text messages
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handlers.unknown_message))
+
+        # Handle inline keyboard callbacks
+        self.application.add_handler(CallbackQueryHandler(self.handlers.handle_callback))
 
         return self.application
 
