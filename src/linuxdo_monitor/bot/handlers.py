@@ -1,5 +1,6 @@
 import logging
 from functools import wraps
+from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
@@ -182,7 +183,7 @@ class BotHandlers:
         else:
             await update.message.reply_text(f"⚠️ 您没有订阅关键词：{keyword}")
 
-    def _build_keyword_list_message(self, chat_id: int) -> tuple[str, InlineKeyboardMarkup | None]:
+    def _build_keyword_list_message(self, chat_id: int) -> tuple[str, Optional[InlineKeyboardMarkup]]:
         """Build keyword list message with inline keyboard"""
         subscriptions = self.db.get_user_subscriptions(chat_id)
         is_subscribe_all = self.db.is_subscribe_all(chat_id)
@@ -338,7 +339,7 @@ class BotHandlers:
         else:
             await update.message.reply_text(f"⚠️ 您没有订阅用户：{author}")
 
-    def _build_user_list_message(self, chat_id: int) -> tuple[str, InlineKeyboardMarkup | None]:
+    def _build_user_list_message(self, chat_id: int) -> tuple[str, Optional[InlineKeyboardMarkup]]:
         """Build user list message with inline keyboard"""
         authors = self.db.get_user_author_subscriptions(chat_id)
 
