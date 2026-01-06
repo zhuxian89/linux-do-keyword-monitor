@@ -19,6 +19,8 @@ MAX_KEYWORD_LENGTH = 50
 
 # 推荐关键词（用于快捷订阅）
 RECOMMENDED_KEYWORDS = ["claude", "ai", "kiro", "gemini", "公益"]
+# 推荐用户（用于快捷订阅）
+RECOMMENDED_USERS = ["zhuxian123", "jason_wong1", "bytebender", "henryxiaoyang"]
 
 
 def require_registration(func):
@@ -54,7 +56,9 @@ class BotHandlers:
         # 快捷订阅按钮
         keyboard = [
             [InlineKeyboardButton(kw, callback_data=f"quick_kw:{kw}") for kw in RECOMMENDED_KEYWORDS[:3]],
-            [InlineKeyboardButton(kw, callback_data=f"quick_kw:{kw}") for kw in RECOMMENDED_KEYWORDS[3:]]
+            [InlineKeyboardButton(kw, callback_data=f"quick_kw:{kw}") for kw in RECOMMENDED_KEYWORDS[3:]],
+            [InlineKeyboardButton(f"@{u}", callback_data=f"quick_user:{u}") for u in RECOMMENDED_USERS[:2]],
+            [InlineKeyboardButton(f"@{u}", callback_data=f"quick_user:{u}") for u in RECOMMENDED_USERS[2:]]
         ]
 
         await update.message.reply_text(
@@ -67,7 +71,8 @@ class BotHandlers:
             "/subscribe_all - 订阅所有新帖子\n"
             "/unsubscribe_all - 取消订阅所有\n"
             "/help - 帮助信息\n\n"
-            "⚡ 快捷订阅热门关键词：",
+            "⚡ 快捷订阅热门关键词：\n"
+            "👤 快捷订阅热门用户：",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
@@ -456,8 +461,27 @@ class BotHandlers:
         # 快捷订阅关键词
         elif query.data.startswith("quick_kw:"):
             keyword = query.data[9:]
+            # 检查数量限制
+            current_count = len(self.db.get_user_subscriptions(chat_id))
+            if current_count >= MAX_KEYWORDS_PER_USER:
+                await query.answer(f"已达上限 {MAX_KEYWORDS_PER_USER} 个，请先删除", show_alert=True)
+                return
             if self.db.add_subscription(chat_id, keyword):
                 self.cache.invalidate_keywords()
                 self.cache.invalidate_subscribers(keyword)
             text, keyboard = self._build_keyword_list_message(chat_id)
+            await query.edit_message_text(text, reply_markup=keyboard)
+
+        # 快捷订阅用户
+        elif query.data.startswith("quick_user:"):
+            author = query.data[11:]
+            # 检查数量限制
+            current_count = self.db.get_user_subscription_count(chat_id)
+            if current_count >= MAX_AUTHORS_PER_USER:
+                await query.answer(f"已达上限 {MAX_AUTHORS_PER_USER} 个，请先删除", show_alert=True)
+                return
+            if self.db.add_user_subscription(chat_id, author):
+                self.cache.invalidate_authors()
+                self.cache.invalidate_author_subscribers(author.lower())
+            text, keyboard = self._build_user_list_message(chat_id)
             await query.edit_message_text(text, reply_markup=keyboard)
