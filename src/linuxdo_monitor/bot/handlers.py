@@ -404,15 +404,16 @@ class BotHandlers:
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle inline keyboard button callbacks"""
         query = update.callback_query
-        await query.answer()
 
         if query.data == "noop":
+            await query.answer()
             return
 
         chat_id = query.message.chat_id
 
         # 删除关键词确认
         if query.data.startswith("del_kw:"):
+            await query.answer()
             keyword = query.data[7:]
             keyboard = InlineKeyboardMarkup([
                 [
@@ -424,6 +425,7 @@ class BotHandlers:
             await query.edit_message_text(f"确认删除关键词「{display}」？", reply_markup=keyboard)
 
         elif query.data.startswith("confirm_kw:"):
+            await query.answer()
             keyword = query.data[11:]
             if self.db.remove_subscription(chat_id, keyword):
                 self.cache.invalidate_keywords()
@@ -432,11 +434,13 @@ class BotHandlers:
             await query.edit_message_text(text, reply_markup=keyboard)
 
         elif query.data == "cancel_kw":
+            await query.answer()
             text, keyboard = self._build_keyword_list_message(chat_id)
             await query.edit_message_text(text, reply_markup=keyboard)
 
         # 删除用户确认
         elif query.data.startswith("del_user:"):
+            await query.answer()
             author = query.data[9:]
             keyboard = InlineKeyboardMarkup([
                 [
@@ -447,6 +451,7 @@ class BotHandlers:
             await query.edit_message_text(f"确认删除用户「{author}」？", reply_markup=keyboard)
 
         elif query.data.startswith("confirm_user:"):
+            await query.answer()
             author = query.data[13:]
             if self.db.remove_user_subscription(chat_id, author):
                 self.cache.invalidate_authors()
@@ -455,6 +460,7 @@ class BotHandlers:
             await query.edit_message_text(text, reply_markup=keyboard)
 
         elif query.data == "cancel_user":
+            await query.answer()
             text, keyboard = self._build_user_list_message(chat_id)
             await query.edit_message_text(text, reply_markup=keyboard)
 
@@ -466,6 +472,7 @@ class BotHandlers:
             if current_count >= MAX_KEYWORDS_PER_USER:
                 await query.answer(f"已达上限 {MAX_KEYWORDS_PER_USER} 个，请先删除", show_alert=True)
                 return
+            await query.answer()
             if self.db.add_subscription(chat_id, keyword):
                 self.cache.invalidate_keywords()
                 self.cache.invalidate_subscribers(keyword)
@@ -480,6 +487,7 @@ class BotHandlers:
             if current_count >= MAX_AUTHORS_PER_USER:
                 await query.answer(f"已达上限 {MAX_AUTHORS_PER_USER} 个，请先删除", show_alert=True)
                 return
+            await query.answer()
             if self.db.add_user_subscription(chat_id, author):
                 self.cache.invalidate_authors()
                 self.cache.invalidate_author_subscribers(author.lower())
