@@ -10,11 +10,17 @@
 
 ## 快速开始
 
+**Linux.do 论坛：**
 1. 在 Telegram 搜索 [@Linuxdo_keyword_bot](https://t.me/Linuxdo_keyword_bot)
 2. 点击 **Start** 或发送 `/start`
 3. 订阅你感兴趣的关键词，例如：`/subscribe docker`
 
-就这么简单！当 Linux.do 有新帖子标题包含你订阅的关键词时，机器人会自动推送通知给你。
+**NodeSeek 论坛：**
+1. 在 Telegram 搜索 [@ns_keyword_bot](https://t.me/ns_keyword_bot)
+2. 点击 **Start** 或发送 `/start`
+3. 订阅你感兴趣的关键词，例如：`/subscribe vps`
+
+就这么简单！当论坛有新帖子标题包含你订阅的关键词时，机器人会自动推送通知给你。
 
 ## 命令列表
 
