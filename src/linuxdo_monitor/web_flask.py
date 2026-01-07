@@ -441,15 +441,8 @@ class ConfigWebServer:
             result = test_cookie(cookie, base_url, flaresolverr_url)
             return jsonify(result)
 
-        @linuxdo_bp.route('/cache/clear')
-        @require_auth
-        def clear_cache():
-            try:
-                cache = get_cache()
-                cache.clear_all()
-                return jsonify({"success": True, "message": "缓存已清除"})
-            except Exception as e:
-                return jsonify({"success": False, "error": str(e)})
+        # Note: Cache clear endpoint removed - cache is now disabled by default
+        # and each Application has its own cache instance
 
         @linuxdo_bp.route('/users')
         @require_auth

@@ -60,6 +60,11 @@ class ForumConfig(BaseModel):
         description="Whether this forum is enabled"
     )
 
+    cache_enabled: bool = Field(
+        default=False,
+        description="Whether to enable caching (disable for debugging)"
+    )
+
 
 class AppConfig(BaseModel):
     """Application configuration - supports both legacy and multi-forum formats"""

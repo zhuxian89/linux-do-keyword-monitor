@@ -306,7 +306,9 @@ class Application:
                 self._cookie_fail_count = 0
 
     def _get_keywords_cached(self) -> List[str]:
-        """Get keywords with caching"""
+        """Get keywords with caching (or direct DB if cache disabled)"""
+        if not self.forum_config.cache_enabled:
+            return self.db.get_all_keywords(forum=self.forum_id)
         cached = self.cache.get_keywords()
         if cached is not None:
             return cached
@@ -315,7 +317,9 @@ class Application:
         return keywords
 
     def _get_subscribe_all_users_cached(self) -> List[int]:
-        """Get subscribe_all users with caching"""
+        """Get subscribe_all users with caching (or direct DB if cache disabled)"""
+        if not self.forum_config.cache_enabled:
+            return self.db.get_all_subscribe_all_users(forum=self.forum_id)
         cached = self.cache.get_subscribe_all_users()
         if cached is not None:
             return cached
@@ -324,7 +328,9 @@ class Application:
         return users
 
     def _get_subscribers_cached(self, keyword: str) -> List[int]:
-        """Get subscribers for a keyword with caching"""
+        """Get subscribers for a keyword with caching (or direct DB if cache disabled)"""
+        if not self.forum_config.cache_enabled:
+            return self.db.get_subscribers_by_keyword(keyword, forum=self.forum_id)
         cached = self.cache.get_subscribers(keyword)
         if cached is not None:
             return cached
@@ -333,7 +339,9 @@ class Application:
         return subscribers
 
     def _get_subscribed_authors_cached(self) -> List[str]:
-        """Get subscribed authors with caching"""
+        """Get subscribed authors with caching (or direct DB if cache disabled)"""
+        if not self.forum_config.cache_enabled:
+            return self.db.get_all_subscribed_authors(forum=self.forum_id)
         cached = self.cache.get_authors()
         if cached is not None:
             return cached
@@ -342,7 +350,9 @@ class Application:
         return authors
 
     def _get_author_subscribers_cached(self, author: str) -> List[int]:
-        """Get subscribers for an author with caching"""
+        """Get subscribers for an author with caching (or direct DB if cache disabled)"""
+        if not self.forum_config.cache_enabled:
+            return self.db.get_subscribers_by_author(author, forum=self.forum_id)
         cached = self.cache.get_author_subscribers(author)
         if cached is not None:
             return cached
