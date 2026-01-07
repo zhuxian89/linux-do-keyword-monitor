@@ -503,10 +503,12 @@ class ConfigWebServer:
             if not sql_upper.startswith('SELECT'):
                 return jsonify({"success": False, "error": "安全限制：只允许 SELECT 查询语句"})
 
-            # Block dangerous keywords
+            # Block dangerous keywords (as standalone words)
+            import re
             dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE', 'EXEC', 'EXECUTE']
             for keyword in dangerous_keywords:
-                if keyword in sql_upper:
+                # Match keyword as a standalone word (not part of column names like created_at)
+                if re.search(r'\b' + keyword + r'\b', sql_upper):
                     return jsonify({"success": False, "error": f"安全限制：不允许使用 {keyword}"})
 
             try:
