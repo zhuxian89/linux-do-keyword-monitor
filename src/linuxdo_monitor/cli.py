@@ -226,6 +226,31 @@ def set_cookie(config_dir, forum_id):
     click.echo("\n✅ Cookie 已更新")
 
 
+@cli.command(name="db-init", help="初始化数据库表结构")
+@click.option(
+    "--config-dir",
+    type=click.Path(),
+    default=None,
+    help="配置文件目录"
+)
+def db_init(config_dir):
+    """初始化数据库表结构（首次使用时运行）"""
+    config_manager = ConfigManager(config_dir)
+    db_path = config_manager.get_db_path()
+
+    if db_path.exists():
+        click.echo(f"⚠️  数据库已存在: {db_path}")
+        if not click.confirm("是否继续？（会跳过已存在的表）"):
+            click.echo("已取消")
+            return
+
+    from .database import Database
+    db = Database(db_path)
+    db._init_db()
+
+    click.echo(f"✅ 数据库初始化完成: {db_path}")
+
+
 @cli.command(name="db-version", help="查看数据库版本")
 @click.option(
     "--config-dir",

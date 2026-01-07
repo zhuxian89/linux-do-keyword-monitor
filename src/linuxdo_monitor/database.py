@@ -15,7 +15,6 @@ class Database:
 
     def __init__(self, db_path: Path):
         self.db_path = db_path
-        self._init_db()
 
     @contextmanager
     def _get_conn(self) -> Generator[sqlite3.Connection, None, None]:
@@ -29,7 +28,7 @@ class Database:
             conn.close()
 
     def _init_db(self) -> None:
-        """Initialize database tables"""
+        """Initialize database tables - call this manually via db-init command"""
         with self._get_conn() as conn:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS users (
@@ -44,8 +43,7 @@ class Database:
                     chat_id INTEGER NOT NULL,
                     keyword TEXT NOT NULL,
                     forum TEXT NOT NULL DEFAULT 'linux-do',
-                    created_at TEXT NOT NULL,
-                    UNIQUE(chat_id, keyword, forum)
+                    created_at TEXT NOT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS posts (
@@ -79,8 +77,7 @@ class Database:
                     chat_id INTEGER NOT NULL,
                     author TEXT NOT NULL,
                     forum TEXT NOT NULL DEFAULT 'linux-do',
-                    created_at TEXT NOT NULL,
-                    UNIQUE(chat_id, author, forum)
+                    created_at TEXT NOT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS blocked_users (

@@ -39,7 +39,7 @@ MIGRATIONS = {
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_subscriptions_unique ON user_subscriptions(chat_id, author, forum)",
     ],
 
-    # 版本 3: 修复主键和外键，支持多论坛
+    # 版本 3: 修复主键支持多论坛，移除外键约束
     3: [
         # 1. 重建 users 表
         "CREATE TABLE users_new (chat_id INTEGER NOT NULL, forum TEXT NOT NULL DEFAULT 'linux-do', created_at TEXT NOT NULL, PRIMARY KEY (chat_id, forum))",
@@ -55,18 +55,18 @@ MIGRATIONS = {
         "ALTER TABLE subscribe_all_new RENAME TO subscribe_all",
         "CREATE INDEX IF NOT EXISTS idx_subscribe_all_forum ON subscribe_all(forum)",
 
-        # 3. 重建 subscriptions 表（删除外键，修复唯一约束）
-        "CREATE TABLE subscriptions_new (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, keyword TEXT NOT NULL, forum TEXT NOT NULL DEFAULT 'linux-do', created_at TEXT NOT NULL, UNIQUE(chat_id, keyword, forum))",
-        "INSERT OR IGNORE INTO subscriptions_new (id, chat_id, keyword, forum, created_at) SELECT id, chat_id, keyword, forum, created_at FROM subscriptions",
+        # 3. 重建 subscriptions 表（移除外键）
+        "CREATE TABLE subscriptions_new (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, keyword TEXT NOT NULL, forum TEXT NOT NULL DEFAULT 'linux-do', created_at TEXT NOT NULL)",
+        "INSERT INTO subscriptions_new (id, chat_id, keyword, forum, created_at) SELECT id, chat_id, keyword, forum, created_at FROM subscriptions",
         "DROP TABLE subscriptions",
         "ALTER TABLE subscriptions_new RENAME TO subscriptions",
         "CREATE INDEX IF NOT EXISTS idx_subscriptions_chat_id ON subscriptions(chat_id)",
         "CREATE INDEX IF NOT EXISTS idx_subscriptions_keyword ON subscriptions(keyword)",
         "CREATE INDEX IF NOT EXISTS idx_subscriptions_forum ON subscriptions(forum)",
 
-        # 4. 重建 user_subscriptions 表（删除外键，修复唯一约束）
-        "CREATE TABLE user_subscriptions_new (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, author TEXT NOT NULL, forum TEXT NOT NULL DEFAULT 'linux-do', created_at TEXT NOT NULL, UNIQUE(chat_id, author, forum))",
-        "INSERT OR IGNORE INTO user_subscriptions_new (id, chat_id, author, forum, created_at) SELECT id, chat_id, author, forum, created_at FROM user_subscriptions",
+        # 4. 重建 user_subscriptions 表（移除外键）
+        "CREATE TABLE user_subscriptions_new (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, author TEXT NOT NULL, forum TEXT NOT NULL DEFAULT 'linux-do', created_at TEXT NOT NULL)",
+        "INSERT INTO user_subscriptions_new (id, chat_id, author, forum, created_at) SELECT id, chat_id, author, forum, created_at FROM user_subscriptions",
         "DROP TABLE user_subscriptions",
         "ALTER TABLE user_subscriptions_new RENAME TO user_subscriptions",
         "CREATE INDEX IF NOT EXISTS idx_user_subscriptions_chat_id ON user_subscriptions(chat_id)",
