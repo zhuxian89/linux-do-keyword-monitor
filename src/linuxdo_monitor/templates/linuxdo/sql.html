@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% set active_page = 'sql' %}
+{% block title %}SQL 查询 - Forum Monitor{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{{ url_for('index') }}?pwd={{ password }}">首页</a></li>
+                <li class="breadcrumb-item active">SQL 查询</li>
+            </ol>
+        </nav>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-database"></i> SQL 查询
+                <span class="badge bg-warning text-dark ms-2">只读模式</span>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>安全限制:</strong> 只允许 SELECT 查询语句，禁止修改数据。
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">常用查询:</label>
+                    <div class="btn-group btn-group-sm flex-wrap" role="group">
+                        <button type="button" class="btn btn-outline-secondary" onclick="setQuery('SELECT name FROM sqlite_master WHERE type=\'table\'')">
+                            查看所有表
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="setQuery('SELECT * FROM users LIMIT 50')">
+                            用户列表
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="setQuery('SELECT * FROM subscriptions LIMIT 50')">
+                            关键词订阅
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="setQuery('SELECT * FROM user_subscriptions LIMIT 50')">
+                            作者订阅
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="setQuery('SELECT * FROM subscribe_all LIMIT 50')">
+                            全部订阅
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="setQuery('SELECT * FROM posts ORDER BY pub_date DESC LIMIT 50')">
+                            最新帖子
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="setQuery('SELECT forum, COUNT(*) as count FROM users GROUP BY forum')">
+                            用户统计
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="sql-input" class="form-label">SQL 语句:</label>
+                    <textarea class="form-control font-monospace" id="sql-input" rows="4" placeholder="SELECT * FROM users LIMIT 10"></textarea>
+                </div>
+
+                <button type="button" class="btn btn-primary" onclick="executeQuery()">
+                    <i class="bi bi-play-fill"></i> 执行查询
+                </button>
+                <button type="button" class="btn btn-outline-secondary" onclick="clearResult()">
+                    <i class="bi bi-x-circle"></i> 清除结果
+                </button>
+
+                <div id="result-area" class="mt-4" style="display: none;">
+                    <div id="result-info" class="mb-2"></div>
+                    <div class="table-responsive">
+                        <table class="table table-striped table-bordered table-sm" id="result-table">
+                            <thead id="result-thead"></thead>
+                            <tbody id="result-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="error-area" class="mt-4" style="display: none;">
+                    <div class="alert alert-danger" id="error-message"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const EXECUTE_URL = '{{ url_for("linuxdo.sql_execute") }}?pwd={{ password }}';
+
+function setQuery(sql) {
+    document.getElementById('sql-input').value = sql;
+}
+
+function clearResult() {
+    document.getElementById('result-area').style.display = 'none';
+    document.getElementById('error-area').style.display = 'none';
+}
+
+async function executeQuery() {
+    const sql = document.getElementById('sql-input').value.trim();
+    if (!sql) {
+        showError('请输入 SQL 语句');
+        return;
+    }
+
+    clearResult();
+
+    try {
+        const response = await fetch(EXECUTE_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'sql=' + encodeURIComponent(sql)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showResult(data);
+        } else {
+            showError(data.error);
+        }
+    } catch (e) {
+        showError('请求失败: ' + e.message);
+    }
+}
+
+function showResult(data) {
+    const resultArea = document.getElementById('result-area');
+    const resultInfo = document.getElementById('result-info');
+    const thead = document.getElementById('result-thead');
+    const tbody = document.getElementById('result-tbody');
+
+    // Show row count
+    resultInfo.innerHTML = `<span class="badge bg-success">查询成功</span> 返回 ${data.row_count} 行`;
+
+    // Build table header
+    thead.innerHTML = '<tr>' + data.columns.map(col => `<th>${escapeHtml(col)}</th>`).join('') + '</tr>';
+
+    // Build table body
+    tbody.innerHTML = data.data.map(row => {
+        return '<tr>' + data.columns.map(col => {
+            const val = row[col];
+            const displayVal = val === null ? '<span class="text-muted">NULL</span>' : escapeHtml(String(val));
+            return `<td>${displayVal}</td>`;
+        }).join('') + '</tr>';
+    }).join('');
+
+    resultArea.style.display = 'block';
+}
+
+function showError(message) {
+    const errorArea = document.getElementById('error-area');
+    const errorMessage = document.getElementById('error-message');
+    errorMessage.innerHTML = '<i class="bi bi-exclamation-triangle"></i> ' + escapeHtml(message);
+    errorArea.style.display = 'block';
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Ctrl+Enter to execute
+document.getElementById('sql-input').addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.key === 'Enter') {
+        executeQuery();
+    }
+});
+</script>
+{% endblock %}
