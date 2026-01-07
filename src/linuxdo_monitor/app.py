@@ -168,6 +168,8 @@ class Application:
             last_result = result
             if not result.get("valid", False):
                 fail_count += 1
+                error_msg = result.get("error", "未知错误")
+                logger.warning(f"⚠️ Cookie 检测失败 (第 {fail_count}/3 次): {error_msg}")
                 if i < 2:  # 前两次失败后等待 2 秒再试
                     await asyncio.sleep(2)
             else:
@@ -197,6 +199,7 @@ class Application:
                 )
         else:
             # 检测通过
+            logger.info("✅ Cookie 检测通过，状态有效")
             if self._cookie_fail_count > 0:
                 logger.info(f"✅ Cookie 检测恢复正常（之前失败 {self._cookie_fail_count} 轮）")
                 await self._notify_admin("✅ Cookie 已恢复有效，之前的告警可以忽略了")
