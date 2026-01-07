@@ -1,6 +1,6 @@
 # Linux.do 关键词监控机器人
 
-监控 [Linux.do](https://linux.do) 论坛，当新帖子标题匹配订阅关键词时，通过 Telegram Bot 推送通知。
+监控 [Linux.do](https://linux.do) 论坛，当新帖子标题匹配订阅关键词时，通过 Telegram Bot 推送通知。支持多论坛（如 NodeSeek）。
 
 ---
 
@@ -105,17 +105,20 @@ A: 订阅所有新帖子，不管标题是什么都会推送。消息量较大�
 
 ## 功能特性
 
+- 支持多论坛（Linux.do、NodeSeek 等）
 - 支持 RSS 和 Discourse API 两种数据源
 - 多用户订阅不同关键词
 - 支持订阅特定用户的所有帖子
 - 支持订阅所有新帖子
 - 关键词匹配不区分大小写
 - 防止重复推送
-- Web 配置管理页面（支持刷新缓存）
+- Web 配置管理页面
+- Web SQL 查询页面（支持只读/管理员模式）
 - Cookie 失效自动降级 + 管理员告警
 - 关键词热度统计
 
 ## 安装
+
 从源码安装：
 
 ```bash
@@ -133,32 +136,43 @@ pip install -e .
 3. 按提示设置机器人名称和用户名
 4. 保存获得的 Bot Token（格式如：`123456789:ABCdefGHIjklMNOpqrsTUVwxyz`）
 
-### 2. 初始化配置
+### 2. 初始化数据库
 
 ```bash
 # 创建工作目录
 mkdir -p ~/linux-do-monitor && cd ~/linux-do-monitor
 
-# 交互式配置
-linux-do-monitor init
+# 初始化数据库表结构
+linux-do-monitor db-init
 ```
-
-按提示输入：
-- **Bot Token**: 从 BotFather 获取的 Token
-- **数据源类型**: RSS（公开）或 Discourse API（需要 Cookie）
-- **拉取间隔**: 默认 60 秒
 
 ### 3. 启动服务
 
 ```bash
-linux-do-monitor run
+# 启动服务（带 Web 管理页面）
+linux-do-monitor run --web-port 8080
+
+# 可选参数：
+# --web-port 8080      Web 管理页面端口
+# --web-password xxx   Web 访问密码（默认: admin）
+# --config-dir ./      配置文件目录
 ```
 
-启动后会显示 Web 配置页面地址，可以在浏览器中管理配置。
+### 4. 配置论坛
 
-### 4. 后台运行
+启动后访问 Web 管理页面配置论坛：
 
-使用 systemd（推荐）：
+```
+http://localhost:8080/linuxdo/config?pwd=admin
+```
+
+在 Web 页面中配置：
+- **Bot Token**: 从 BotFather 获取的 Token
+- **数据源类型**: RSS（公开）或 Discourse API（需要 Cookie）
+- **RSS URL**: 论坛的 RSS 地址
+- **拉取间隔**: 默认 60 秒
+
+### 5. 后台运行（systemd）
 
 ```bash
 sudo tee /etc/systemd/system/linux-do-monitor.service << EOF
@@ -168,9 +182,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=$USER
-WorkingDirectory=$HOME/linux-do-monitor
-ExecStart=$(which linux-do-monitor) run
+User=root
+WorkingDirectory=/root/linux-do-monitor
+ExecStart=/usr/local/bin/linux-do-monitor run --web-port 8080 --web-password yourpassword
 Restart=always
 RestartSec=10
 
@@ -186,20 +200,17 @@ sudo systemctl start linux-do-monitor
 sudo journalctl -u linux-do-monitor -f
 ```
 
-或使用 Docker：
-
-```bash
-# TODO: Docker 部署方式
-```
-
 ## CLI 命令
 
 ```bash
-linux-do-monitor --help      # 查看帮助
-linux-do-monitor version     # 查看版本
-linux-do-monitor init        # 初始化配置
-linux-do-monitor config      # 查看当前配置
-linux-do-monitor run         # 启动服务
+linux-do-monitor --help        # 查看帮助
+linux-do-monitor version       # 查看版本
+linux-do-monitor init          # 交互式初始化配置（可选）
+linux-do-monitor config        # 查看当前配置
+linux-do-monitor db-init       # 初始化数据库表结构
+linux-do-monitor db-version    # 查看数据库版本
+linux-do-monitor db-migrate    # 执行数据库迁移
+linux-do-monitor run           # 启动服务
 ```
 
 ## 配置文件
@@ -209,29 +220,63 @@ linux-do-monitor run         # 启动服务
 - `config.json` - 配置文件
 - `data.db` - SQLite 数据库
 
-配置示例：
+配置示例（多论坛）：
 
 ```json
 {
-  "bot_token": "your_bot_token",
+  "forums": [
+    {
+      "forum_id": "linux-do",
+      "name": "Linux.do",
+      "bot_token": "your_bot_token",
+      "source_type": "rss",
+      "rss_url": "https://linux.do/latest.rss",
+      "discourse_url": "https://linux.do",
+      "discourse_cookie": "",
+      "fetch_interval": 60,
+      "enabled": true
+    },
+    {
+      "forum_id": "nodeseek",
+      "name": "NodeSeek",
+      "bot_token": "another_bot_token",
+      "source_type": "rss",
+      "rss_url": "https://www.nodeseek.com/rss.xml",
+      "fetch_interval": 30,
+      "enabled": true
+    }
+  ],
   "admin_chat_id": 123456789,
-  "source_type": "discourse",
-  "rss_url": "https://linux.do/latest.rss",
-  "discourse_url": "https://linux.do",
-  "discourse_cookie": "your_cookie_here",
-  "fetch_interval": 60
+  "sql_admin_password": "your_sql_admin_password"
 }
 ```
 
 ## Web 管理页面
 
-启动服务后，访问 `http://localhost:8080?pwd=yourpassword` 可以：
+启动服务后，访问以下页面：
 
-- 切换数据源（RSS / Discourse API）
-- 更新 Cookie
-- 设置管理员 Chat ID（接收系统告警）
-- 查看用户统计
-- 刷新缓存（清除所有缓存数据）
+| 页面 | 地址 | 说明 |
+|------|------|------|
+| 配置管理 | `/linuxdo/config?pwd=xxx` | 配置论坛、Bot Token、数据源等 |
+| 用户统计 | `/linuxdo/users?pwd=xxx` | 查看用户和订阅统计 |
+| SQL 查询 | `/linuxdo/sql?pwd=xxx` | 只读 SQL 查询 |
+| SQL 管理 | `/linuxdo/sql?pwd=xxx&admin=yyy` | 可执行 INSERT/UPDATE/DELETE |
+
+默认密码：
+- Web 访问密码 (`pwd`): `admin`
+- SQL 管理员密码 (`admin`): `admin`（可在 config.json 中设置 `sql_admin_password`）
+
+## 数据库迁移
+
+升级版本后如果数据库结构有变化，需要执行迁移：
+
+```bash
+# 查看当前版本
+linux-do-monitor db-version
+
+# 执行迁移
+linux-do-monitor db-migrate -y
+```
 
 ## 技术架构
 
@@ -253,35 +298,7 @@ linux-do-monitor run         # 启动服务
 - **Bot 框架**: python-telegram-bot
 - **数据库**: SQLite
 - **HTTP 客户端**: curl_cffi（绕过 Cloudflare）
-
-## TODO
-
-### 短期优化（提升体验）
-
-- [x] 订阅用户 - 订阅某个用户的所有帖子
-- [x] 关键词热度统计 - `/stats` 命令查看统计信息
-- [x] 刷新缓存 - Web 页面支持手动刷新缓存
-- [x] 正则匹配 - 支持正则表达式订阅，如 `\bopenai\b`、`(免费|白嫖)`
-- [x] 封禁检测 - 检测用户封禁 Bot 并统计
-- [ ] 静默时段 - 用户可设置夜间不推送（如 23:00-8:00）
-- [ ] 消息合并 - 短时间内多条通知合并成一条，减少打扰
-- [ ] 分类订阅 - 按 Linux.do 的分类（如"开发调优"、"资源荟萃"）订阅
-
-### 中期优化（提升稳定性）
-
-- [ ] 消息队列 - 引入 Redis 队列，解耦拉取和发送
-- [ ] 失败重试 - 发送失败的消息进入重试队列
-- [ ] 健康检查 - `/health` 端点，方便监控
-- [ ] 数据清理 - 定期清理过期的 posts 和 notifications 表
-- [ ] 多实例部署 - 支持多实例负载均衡
-- [ ] Docker 部署 - 提供 Dockerfile 和 docker-compose
-
-### 长期扩展（新功能）
-
-- [ ] 内容摘要 - 推送时附带帖子摘要
-- [ ] AI 智能推荐 - 根据用户历史点击推荐关键词
-- [ ] 多平台支持 - 支持其他 Discourse 论坛
-- [ ] Web 订阅管理 - 用户通过网页管理订阅，不只是 Bot
+- **Web 框架**: Flask
 
 ## License
 
