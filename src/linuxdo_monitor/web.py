@@ -220,6 +220,7 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         .success {{ background: #d4edda; color: #155724; padding: 10px; border-radius: 4px; }}
         .error {{ background: #f8d7da; color: #721c24; padding: 10px; border-radius: 4px; }}
         .warning {{ background: #fff3cd; color: #856404; padding: 10px; border-radius: 4px; }}
+        .hint {{ background: #e7f3ff; color: #0c5460; padding: 10px; border-radius: 4px; margin: 15px 0; font-size: 13px; }}
         #test-result {{ margin-top: 10px; display: none; }}
     </style>
 </head>
@@ -236,6 +237,11 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         <div id="cache-result" style="margin-top: 10px; display: none;"></div>
     </div>
 
+    <div class="hint">
+        <strong>热更新说明:</strong> 以下配置保存后立即生效，无需重启服务：数据源类型、Cookie、拉取间隔、FlareSolverr URL、Cookie 检测间隔、管理员 Chat ID。<br>
+        <strong>注意:</strong> Bot Token 修改后需要重启服务才能生效。
+    </div>
+
     <form method="POST" action="?pwd={self.password}">
         <div class="field">
             <label>数据源类型</label>
@@ -248,7 +254,7 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         <div class="field">
             <label>Discourse Cookie</label>
             <textarea name="discourse_cookie" id="cookie-input" placeholder="粘贴完整的 Cookie 值...">{config.get('discourse_cookie', '')}</textarea>
-            <small>直接粘贴浏览器完整 Cookie，系统会自动提取需要的字段</small>
+            <small>直接粘贴浏览器完整 Cookie（支持换行格式），系统会自动提取 _t 和 _forum_session 字段</small>
             <br>
             <button type="button" class="btn-test" onclick="testCookie()">测试 Cookie 有效性</button>
             <div id="test-result"></div>
