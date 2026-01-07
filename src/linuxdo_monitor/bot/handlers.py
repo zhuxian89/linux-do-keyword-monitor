@@ -40,11 +40,11 @@ def require_registration(func):
 class BotHandlers:
     """Telegram bot command handlers with multi-forum support"""
 
-    def __init__(self, db: Database, forum_id: str = "linux-do", forum_name: str = "Linux.do"):
+    def __init__(self, db: Database, forum_id: str = "linux-do", forum_name: str = "Linux.do", cache: AppCache = None):
         self.db = db
         self.forum_id = forum_id
         self.forum_name = forum_name
-        self.cache = AppCache(forum_id=forum_id)  # Forum-isolated cache
+        self.cache = cache or AppCache(forum_id=forum_id)  # Use shared cache if provided
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command - register user"""

@@ -120,16 +120,17 @@ class Application:
         self.admin_chat_id = admin_chat_id
         self.config_manager = config_manager
         self.db = db
+        self.cache = AppCache(forum_id=self.forum_id)  # Shared cache
         self.bot = TelegramBot(
             forum_config.bot_token,
             self.db,
             forum_id=self.forum_id,
-            forum_name=self.forum_name
+            forum_name=self.forum_name,
+            cache=self.cache  # Pass shared cache to bot
         )
         self.source = create_source(forum_config)
         self.matcher = KeywordMatcher()
         self.scheduler = AsyncIOScheduler()
-        self.cache = AppCache(forum_id=self.forum_id)  # Forum-isolated cache
         self._cookie_fail_count = 0  # 连续失败计数器
         self._cookie_fail_threshold = 5  # 连续失败阈值
         self._cookie_notify_round = 0  # 第几轮通知
@@ -641,7 +642,8 @@ class Application:
             self.forum_config.bot_token,
             self.db,
             forum_id=self.forum_id,
-            forum_name=self.forum_name
+            forum_name=self.forum_name,
+            cache=self.cache  # Pass shared cache
         )
         self.source = create_source(self.forum_config)
 

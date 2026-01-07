@@ -27,12 +27,12 @@ RETRY_DELAY = 2.0       # 重试间隔（秒）
 class TelegramBot:
     """Telegram bot wrapper with multi-forum support"""
 
-    def __init__(self, token: str, db: Database, forum_id: str = "linux-do", forum_name: str = "Linux.do"):
+    def __init__(self, token: str, db: Database, forum_id: str = "linux-do", forum_name: str = "Linux.do", cache=None):
         self.token = token
         self.db = db
         self.forum_id = forum_id
         self.forum_name = forum_name
-        self.handlers = BotHandlers(db, forum_id, forum_name)
+        self.handlers = BotHandlers(db, forum_id, forum_name, cache=cache)
         self.application: Application = None
 
     def setup(self) -> Application:
