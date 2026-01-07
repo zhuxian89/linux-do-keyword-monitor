@@ -25,12 +25,14 @@ RETRY_DELAY = 2.0       # 重试间隔（秒）
 
 
 class TelegramBot:
-    """Telegram bot wrapper"""
+    """Telegram bot wrapper with multi-forum support"""
 
-    def __init__(self, token: str, db: Database):
+    def __init__(self, token: str, db: Database, forum_id: str = "linux-do", forum_name: str = "Linux.do"):
         self.token = token
         self.db = db
-        self.handlers = BotHandlers(db)
+        self.forum_id = forum_id
+        self.forum_name = forum_name
+        self.handlers = BotHandlers(db, forum_id, forum_name)
         self.application: Application = None
 
     def setup(self) -> Application:
@@ -123,7 +125,7 @@ class TelegramBot:
             True if sent successfully, False if failed
         """
         message = (
-            f"🔔 <b>Linux.do 新帖提醒</b>\n\n"
+            f"🔔 <b>{self.forum_name} 新帖提醒</b>\n\n"
             f"📌 <b>匹配关键词</b>：<code>{keyword}</code>\n\n"
             f"📝 <b>标题</b>\n"
             f"{title}\n\n"
@@ -139,7 +141,7 @@ class TelegramBot:
             True if sent successfully, False if failed
         """
         message = (
-            f"📢 <b>Linux.do 新帖</b>\n\n"
+            f"📢 <b>{self.forum_name} 新帖</b>\n\n"
             f"📝 <b>标题</b>\n"
             f"{title}\n\n"
             f"🔗 <a href=\"{link}\">点击查看原帖 →</a>\n"

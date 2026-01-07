@@ -129,7 +129,7 @@ class RedisCache(CacheBackend):
         if value:
             try:
                 return json.loads(value)
-            except:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 return value
         return None
 
@@ -163,7 +163,7 @@ class RedisCache(CacheBackend):
 
 
 class AppCache:
-    """Application-level cache with domain-specific methods"""
+    """Application-level cache with domain-specific methods and forum isolation"""
 
     # Cache key prefixes
     PREFIX_KEYWORDS = "keywords"
@@ -173,8 +173,13 @@ class AppCache:
     PREFIX_AUTHORS = "authors"
     PREFIX_AUTHOR_SUBSCRIBERS = "author_subscribers:"
 
-    def __init__(self, backend: Optional[CacheBackend] = None):
+    def __init__(self, forum_id: str = "default", backend: Optional[CacheBackend] = None):
+        self.forum_id = forum_id
         self._backend = backend or MemoryCache()
+
+    def _key(self, key: str) -> str:
+        """Generate forum-scoped cache key"""
+        return f"{self.forum_id}:{key}"
 
     @property
     def backend(self) -> CacheBackend:
@@ -187,85 +192,87 @@ class AppCache:
     # Keywords cache
     def get_keywords(self) -> Optional[List[str]]:
         """Get cached keywords list"""
-        return self._backend.get(self.PREFIX_KEYWORDS)
+        return self._backend.get(self._key(self.PREFIX_KEYWORDS))
 
     def set_keywords(self, keywords: List[str], ttl: int = 3600) -> None:
         """Cache keywords list with TTL (default 1 hour)"""
-        self._backend.set(self.PREFIX_KEYWORDS, keywords, ttl)
+        self._backend.set(self._key(self.PREFIX_KEYWORDS), keywords, ttl)
 
     def invalidate_keywords(self) -> None:
         """Invalidate keywords cache"""
-        self._backend.delete(self.PREFIX_KEYWORDS)
+        self._backend.delete(self._key(self.PREFIX_KEYWORDS))
 
     # Subscribers cache
     def get_subscribers(self, keyword: str) -> Optional[List[int]]:
         """Get cached subscribers for a keyword"""
-        return self._backend.get(f"{self.PREFIX_SUBSCRIBERS}{keyword}")
+        return self._backend.get(self._key(f"{self.PREFIX_SUBSCRIBERS}{keyword}"))
 
     def set_subscribers(self, keyword: str, chat_ids: List[int], ttl: int = 3600) -> None:
         """Cache subscribers for a keyword (default 1 hour)"""
-        self._backend.set(f"{self.PREFIX_SUBSCRIBERS}{keyword}", chat_ids, ttl)
+        self._backend.set(self._key(f"{self.PREFIX_SUBSCRIBERS}{keyword}"), chat_ids, ttl)
 
     def invalidate_subscribers(self, keyword: Optional[str] = None) -> None:
         """Invalidate subscribers cache for a keyword or all"""
         if keyword:
-            self._backend.delete(f"{self.PREFIX_SUBSCRIBERS}{keyword}")
+            self._backend.delete(self._key(f"{self.PREFIX_SUBSCRIBERS}{keyword}"))
         # Note: For full invalidation, would need key pattern matching
 
     # Subscribe all users cache
     def get_subscribe_all_users(self) -> Optional[List[int]]:
         """Get cached subscribe_all users"""
-        return self._backend.get(self.PREFIX_SUBSCRIBE_ALL)
+        return self._backend.get(self._key(self.PREFIX_SUBSCRIBE_ALL))
 
     def set_subscribe_all_users(self, chat_ids: List[int], ttl: int = 3600) -> None:
         """Cache subscribe_all users (default 1 hour)"""
-        self._backend.set(self.PREFIX_SUBSCRIBE_ALL, chat_ids, ttl)
+        self._backend.set(self._key(self.PREFIX_SUBSCRIBE_ALL), chat_ids, ttl)
 
     def invalidate_subscribe_all(self) -> None:
         """Invalidate subscribe_all cache"""
-        self._backend.delete(self.PREFIX_SUBSCRIBE_ALL)
+        self._backend.delete(self._key(self.PREFIX_SUBSCRIBE_ALL))
 
     # Notification tracking (for current fetch cycle)
     def mark_notified(self, chat_id: int, post_id: str) -> None:
         """Mark that a user has been notified about a post"""
-        self._backend.sadd(f"{self.PREFIX_NOTIFIED}{post_id}", chat_id)
+        self._backend.sadd(self._key(f"{self.PREFIX_NOTIFIED}{post_id}"), chat_id)
 
     def is_notified(self, chat_id: int, post_id: str) -> bool:
         """Check if user was already notified about a post in this cycle"""
-        return self._backend.sismember(f"{self.PREFIX_NOTIFIED}{post_id}", chat_id)
+        return self._backend.sismember(self._key(f"{self.PREFIX_NOTIFIED}{post_id}"), chat_id)
 
     def clear_notified(self, post_id: str) -> None:
         """Clear notification tracking for a post"""
-        self._backend.delete(f"{self.PREFIX_NOTIFIED}{post_id}")
+        self._backend.delete(self._key(f"{self.PREFIX_NOTIFIED}{post_id}"))
 
     # Author subscription cache
     def get_authors(self) -> Optional[List[str]]:
         """Get cached subscribed authors list"""
-        return self._backend.get(self.PREFIX_AUTHORS)
+        return self._backend.get(self._key(self.PREFIX_AUTHORS))
 
     def set_authors(self, authors: List[str], ttl: int = 3600) -> None:
         """Cache subscribed authors list with TTL (default 1 hour)"""
-        self._backend.set(self.PREFIX_AUTHORS, authors, ttl)
+        self._backend.set(self._key(self.PREFIX_AUTHORS), authors, ttl)
 
     def invalidate_authors(self) -> None:
         """Invalidate authors cache"""
-        self._backend.delete(self.PREFIX_AUTHORS)
+        self._backend.delete(self._key(self.PREFIX_AUTHORS))
 
     def get_author_subscribers(self, author: str) -> Optional[List[int]]:
         """Get cached subscribers for an author"""
-        return self._backend.get(f"{self.PREFIX_AUTHOR_SUBSCRIBERS}{author}")
+        return self._backend.get(self._key(f"{self.PREFIX_AUTHOR_SUBSCRIBERS}{author}"))
 
     def set_author_subscribers(self, author: str, chat_ids: List[int], ttl: int = 3600) -> None:
         """Cache subscribers for an author (default 1 hour)"""
-        self._backend.set(f"{self.PREFIX_AUTHOR_SUBSCRIBERS}{author}", chat_ids, ttl)
+        self._backend.set(self._key(f"{self.PREFIX_AUTHOR_SUBSCRIBERS}{author}"), chat_ids, ttl)
 
     def invalidate_author_subscribers(self, author: Optional[str] = None) -> None:
         """Invalidate author subscribers cache"""
         if author:
-            self._backend.delete(f"{self.PREFIX_AUTHOR_SUBSCRIBERS}{author}")
+            self._backend.delete(self._key(f"{self.PREFIX_AUTHOR_SUBSCRIBERS}{author}"))
 
     def clear_all(self) -> None:
-        """Clear all cache"""
+        """Clear all cache for this forum"""
+        # Note: This clears ALL cache, not just this forum's
+        # For forum-specific clearing, would need key pattern matching
         self._backend.clear()
 
 

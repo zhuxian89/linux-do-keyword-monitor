@@ -112,7 +112,7 @@ def test_cookie(cookie: str, base_url: str = "https://linux.do", flaresolverr_ur
                     return {"valid": False, "error": "Cookie 无效或已过期", "error_type": "cookie_invalid"}
                 if "errors" in data:
                     return {"valid": False, "error": data["errors"][0], "error_type": "cookie_invalid"}
-            except:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 pass
             return {"valid": False, "error": f"HTTP {status_code}", "error_type": "service_error"}
     except json.JSONDecodeError:
@@ -202,54 +202,115 @@ class ConfigWebServer:
                 return f(*args, **kwargs)
             return decorated_function
 
+        def get_forum_config(config: dict, forum_id: str = None) -> tuple:
+            """Get forum config from config dict.
+
+            Returns:
+                (forum_config, forum_index, is_legacy)
+            """
+            forums = config.get('forums', [])
+            if forums:
+                # Multi-forum format
+                if forum_id:
+                    for i, f in enumerate(forums):
+                        if f.get('forum_id') == forum_id:
+                            return f, i, False
+                # Default to first forum
+                return forums[0] if forums else None, 0, False
+            else:
+                # Legacy format - return config itself
+                return config, -1, True
+
         @linuxdo_bp.route('/')
         @linuxdo_bp.route('/config')
         @require_auth
         def config_page():
             config = web_server._load_config()
-            return render_template('linuxdo/config.html', config=config)
+            forum_id = request.args.get('forum_id')
+            forum_config, forum_index, is_legacy = get_forum_config(config, forum_id)
+
+            # Get list of all forums for navigation
+            forums = config.get('forums', [])
+            if not forums and config.get('bot_token'):
+                # Legacy format
+                forums = [{'forum_id': 'linux-do', 'name': 'Linux.do'}]
+
+            return render_template('linuxdo/config.html',
+                                 config=config,
+                                 forum_config=forum_config,
+                                 forum_id=forum_config.get('forum_id', 'linux-do') if forum_config else 'linux-do',
+                                 forums=forums,
+                                 is_legacy=is_legacy)
 
         @linuxdo_bp.route('/config/save', methods=['POST'])
         @require_auth
         def save_config():
             config = web_server._load_config()
+            forum_id = request.args.get('forum_id') or request.form.get('forum_id', 'linux-do')
 
-            # Update config from form
+            forums = config.get('forums', [])
+            is_legacy = not forums and config.get('bot_token')
+
+            if is_legacy:
+                # Legacy format - update config directly
+                target = config
+            else:
+                # Multi-forum format - find or create forum
+                target = None
+                for f in forums:
+                    if f.get('forum_id') == forum_id:
+                        target = f
+                        break
+                if not target:
+                    # Create new forum config
+                    target = {'forum_id': forum_id, 'name': forum_id, 'enabled': True}
+                    forums.append(target)
+                    config['forums'] = forums
+
+            # Update forum config from form
+            # Name
+            if request.form.get('name', '').strip():
+                target['name'] = request.form['name'].strip()
+
+            # Enabled status (checkbox)
+            target['enabled'] = 'enabled' in request.form
+
             if request.form.get('bot_token', '').strip():
-                config['bot_token'] = request.form['bot_token'].strip()
+                target['bot_token'] = request.form['bot_token'].strip()
 
-            config['source_type'] = request.form.get('source_type', 'rss')
+            target['source_type'] = request.form.get('source_type', 'rss')
 
             if request.form.get('rss_url', '').strip():
-                config['rss_url'] = request.form['rss_url'].strip()
+                target['rss_url'] = request.form['rss_url'].strip()
 
             if request.form.get('discourse_url', '').strip():
-                config['discourse_url'] = request.form['discourse_url'].strip()
+                target['discourse_url'] = request.form['discourse_url'].strip()
 
             # Process cookie
             raw_cookie = request.form.get('discourse_cookie', '')
             if raw_cookie:
                 needed = extract_needed_cookies(raw_cookie)
                 if needed:
-                    config['discourse_cookie'] = "; ".join(f"{k}={v}" for k, v in needed.items())
+                    target['discourse_cookie'] = "; ".join(f"{k}={v}" for k, v in needed.items())
                 else:
-                    config['discourse_cookie'] = raw_cookie
+                    target['discourse_cookie'] = raw_cookie
             else:
-                config['discourse_cookie'] = ""
+                target['discourse_cookie'] = ""
 
             try:
-                config['fetch_interval'] = int(request.form.get('fetch_interval', 60))
+                target['fetch_interval'] = int(request.form.get('fetch_interval', 60))
             except ValueError:
                 pass
 
             flaresolverr_url = request.form.get('flaresolverr_url', '').strip()
-            config['flaresolverr_url'] = flaresolverr_url if flaresolverr_url else None
+            target['flaresolverr_url'] = flaresolverr_url if flaresolverr_url else None
 
             try:
-                config['cookie_check_interval'] = int(request.form.get('cookie_check_interval', 300))
+                target['cookie_check_interval'] = int(request.form.get('cookie_check_interval', 300))
             except ValueError:
                 pass
 
+            # Update global admin_chat_id
             admin_id = request.form.get('admin_chat_id', '').strip()
             if admin_id:
                 try:
@@ -272,19 +333,28 @@ class ConfigWebServer:
             else:
                 flash('配置已保存！重启服务后生效。', 'success')
 
-            return redirect(url_for('linuxdo.config_page', pwd=request.args.get('pwd', '')))
+            return redirect(url_for('linuxdo.config_page', pwd=request.args.get('pwd', ''), forum_id=forum_id))
 
         @linuxdo_bp.route('/test-cookie', methods=['GET', 'POST'])
         @require_auth
         def test_cookie_route():
             config = web_server._load_config()
-            base_url = config.get('discourse_url', 'https://linux.do')
-            flaresolverr_url = config.get('flaresolverr_url')
+            forum_id = request.args.get('forum_id')
+            forum_config, _, is_legacy = get_forum_config(config, forum_id)
+
+            if forum_config:
+                base_url = forum_config.get('discourse_url', 'https://linux.do')
+                flaresolverr_url = forum_config.get('flaresolverr_url')
+                default_cookie = forum_config.get('discourse_cookie', '')
+            else:
+                base_url = 'https://linux.do'
+                flaresolverr_url = None
+                default_cookie = ''
 
             if request.method == 'POST':
                 cookie = request.form.get('cookie', '')
             else:
-                cookie = config.get('discourse_cookie', '')
+                cookie = default_cookie
 
             if not cookie:
                 return jsonify({"valid": False, "error": "Cookie 未配置"})
@@ -312,19 +382,28 @@ class ConfigWebServer:
             from .database import Database
             db = Database(web_server.db_path)
 
+            forum_id = request.args.get('forum_id', 'linux-do')
             page = int(request.args.get('page', 1))
             page_size = 20
 
-            stats = db.get_stats()
-            users, total = db.get_all_users(page=page, page_size=page_size)
+            stats = db.get_stats(forum=forum_id)
+            users, total = db.get_all_users(forum=forum_id, page=page, page_size=page_size)
             total_pages = (total + page_size - 1) // page_size
+
+            # Get list of forums for navigation
+            config = web_server._load_config()
+            forums = config.get('forums', [])
+            if not forums and config.get('bot_token'):
+                forums = [{'forum_id': 'linux-do', 'name': 'Linux.do'}]
 
             return render_template('linuxdo/users.html',
                                  stats=stats,
                                  users=users,
                                  page=page,
                                  total=total,
-                                 total_pages=total_pages)
+                                 total_pages=total_pages,
+                                 forum_id=forum_id,
+                                 forums=forums)
 
     def start(self):
         """Start web server in background thread"""

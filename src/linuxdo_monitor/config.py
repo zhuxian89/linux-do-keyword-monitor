@@ -1,10 +1,9 @@
 import json
-import os
 from enum import Enum
 from pathlib import Path
-from typing import Literal, Optional
+from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class SourceType(str, Enum):
@@ -13,15 +12,11 @@ class SourceType(str, Enum):
     DISCOURSE = "discourse"
 
 
-class AppConfig(BaseModel):
-    """Application configuration"""
-    bot_token: str = Field(description="Telegram Bot Token")
-
-    # Admin configuration
-    admin_chat_id: Optional[int] = Field(
-        default=None,
-        description="Admin chat ID for receiving alerts"
-    )
+class ForumConfig(BaseModel):
+    """Single forum configuration"""
+    forum_id: str = Field(description="Unique forum identifier (e.g. 'linux-do', 'nodeseek')")
+    name: str = Field(description="Display name for the forum")
+    bot_token: str = Field(description="Telegram Bot Token for this forum")
 
     # Data source configuration
     source_type: SourceType = Field(
@@ -31,13 +26,13 @@ class AppConfig(BaseModel):
 
     # RSS source config
     rss_url: str = Field(
-        default="https://linux.do/latest.rss",
+        default="",
         description="RSS feed URL"
     )
 
     # Discourse source config
     discourse_url: str = Field(
-        default="https://linux.do",
+        default="",
         description="Discourse base URL"
     )
     discourse_cookie: Optional[str] = Field(
@@ -47,7 +42,7 @@ class AppConfig(BaseModel):
 
     flaresolverr_url: Optional[str] = Field(
         default=None,
-        description="FlareSolverr URL for bypassing Cloudflare (e.g. http://localhost:8191)"
+        description="FlareSolverr URL for bypassing Cloudflare"
     )
 
     cookie_check_interval: int = Field(
@@ -59,6 +54,73 @@ class AppConfig(BaseModel):
         default=60,
         description="Fetch interval in seconds"
     )
+
+    enabled: bool = Field(
+        default=True,
+        description="Whether this forum is enabled"
+    )
+
+
+class AppConfig(BaseModel):
+    """Application configuration - supports both legacy and multi-forum formats"""
+
+    # Multi-forum configuration
+    forums: List[ForumConfig] = Field(
+        default_factory=list,
+        description="List of forum configurations"
+    )
+
+    # Global admin configuration
+    admin_chat_id: Optional[int] = Field(
+        default=None,
+        description="Admin chat ID for receiving alerts"
+    )
+
+    # Legacy fields (for backward compatibility)
+    bot_token: Optional[str] = Field(default=None, description="Legacy: Telegram Bot Token")
+    source_type: Optional[SourceType] = Field(default=None, description="Legacy: Data source type")
+    rss_url: Optional[str] = Field(default=None, description="Legacy: RSS feed URL")
+    discourse_url: Optional[str] = Field(default=None, description="Legacy: Discourse base URL")
+    discourse_cookie: Optional[str] = Field(default=None, description="Legacy: Discourse cookie")
+    flaresolverr_url: Optional[str] = Field(default=None, description="Legacy: FlareSolverr URL")
+    cookie_check_interval: Optional[int] = Field(default=None, description="Legacy: Cookie check interval")
+    fetch_interval: Optional[int] = Field(default=None, description="Legacy: Fetch interval")
+
+    @model_validator(mode='after')
+    def convert_legacy_config(self) -> 'AppConfig':
+        """Convert legacy single-forum config to multi-forum format"""
+        # If forums is empty but legacy fields are present, convert
+        if not self.forums and self.bot_token:
+            legacy_forum = ForumConfig(
+                forum_id="linux-do",
+                name="Linux.do",
+                bot_token=self.bot_token,
+                source_type=self.source_type or SourceType.RSS,
+                rss_url=self.rss_url or "https://linux.do/latest.rss",
+                discourse_url=self.discourse_url or "https://linux.do",
+                discourse_cookie=self.discourse_cookie,
+                flaresolverr_url=self.flaresolverr_url,
+                cookie_check_interval=self.cookie_check_interval or 300,
+                fetch_interval=self.fetch_interval or 60,
+                enabled=True,
+            )
+            self.forums = [legacy_forum]
+        return self
+
+    def is_legacy_format(self) -> bool:
+        """Check if config is in legacy format"""
+        return self.bot_token is not None and len(self.forums) <= 1
+
+    def get_forum(self, forum_id: str) -> Optional[ForumConfig]:
+        """Get forum config by ID"""
+        for forum in self.forums:
+            if forum.forum_id == forum_id:
+                return forum
+        return None
+
+    def get_enabled_forums(self) -> List[ForumConfig]:
+        """Get all enabled forums"""
+        return [f for f in self.forums if f.enabled]
 
 
 class ConfigManager:
@@ -85,11 +147,26 @@ class ConfigManager:
             data = json.load(f)
         return AppConfig.model_validate(data)
 
+    def load_raw(self) -> Optional[dict]:
+        """Load raw configuration as dict"""
+        if not self.config_path.exists():
+            return None
+        with open(self.config_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
     def save(self, config: AppConfig) -> None:
         """Save configuration to file"""
         self.ensure_config_dir()
         with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump(config.model_dump(), f, indent=2, ensure_ascii=False)
+            # Only save non-None fields
+            data = config.model_dump(exclude_none=True)
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+    def save_raw(self, data: dict) -> None:
+        """Save raw configuration dict"""
+        self.ensure_config_dir()
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
 
     def exists(self) -> bool:
         """Check if configuration file exists"""

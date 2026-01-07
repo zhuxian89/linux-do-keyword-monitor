@@ -4,7 +4,7 @@ from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from ..cache import get_cache
+from ..cache import AppCache
 from ..database import Database
 from ..matcher.keyword import is_regex_pattern, validate_regex
 
@@ -28,7 +28,7 @@ def require_registration(func):
     @wraps(func)
     async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         chat_id = update.effective_chat.id
-        if not self.db.user_exists(chat_id):
+        if not self.db.user_exists(chat_id, forum=self.forum_id):
             await update.message.reply_text(
                 "👋 您还没有注册，请先发送 /start 开始使用机器人"
             )
@@ -38,20 +38,23 @@ def require_registration(func):
 
 
 class BotHandlers:
-    """Telegram bot command handlers"""
+    """Telegram bot command handlers with multi-forum support"""
 
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, forum_id: str = "linux-do", forum_name: str = "Linux.do"):
         self.db = db
-        self.cache = get_cache()
+        self.forum_id = forum_id
+        self.forum_name = forum_name
+        self.cache = AppCache(forum_id=forum_id)  # Forum-isolated cache
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command - register user"""
         chat_id = update.effective_chat.id
-        self.db.add_user(chat_id)
+        self.db.add_user(chat_id, forum=self.forum_id)
         # 用户回来了，清除封禁标记
         self.db.unmark_user_blocked(chat_id)
-        # Clear all cache on user registration for safety
-        self.cache.clear_all()
+        # Clear cache on user registration for safety
+        self.cache.invalidate_keywords()
+        self.cache.invalidate_subscribe_all()
 
         # 快捷订阅按钮
         keyboard = [
@@ -62,7 +65,7 @@ class BotHandlers:
         ]
 
         await update.message.reply_text(
-            "👋 欢迎使用 Linux.do 关键词监控机器人！\n\n"
+            f"👋 欢迎使用 {self.forum_name} 关键词监控机器人！\n\n"
             "📝 使用方法：\n"
             "/subscribe <关键词> - 订阅关键词\n"
             "/list - 查看我的关键词订阅\n"
@@ -81,7 +84,7 @@ class BotHandlers:
         await update.message.reply_text(
             "📖 帮助信息\n\n"
             "⚡ 首次使用请先发送 /start 注册\n\n"
-            "本机器人监控 Linux.do 论坛的最新帖子，"
+            f"本机器人监控 {self.forum_name} 论坛的最新帖子，"
             "当帖子标题包含您订阅的关键词时，会发送通知给您。\n\n"
             "📝 关键词订阅：\n"
             "/subscribe <关键词> - 订阅关键词（不区分大小写）\n"
@@ -138,7 +141,7 @@ class BotHandlers:
                 return
 
         # Check keyword limit
-        current_subscriptions = self.db.get_user_subscriptions(chat_id)
+        current_subscriptions = self.db.get_user_subscriptions(chat_id, forum=self.forum_id)
         if len(current_subscriptions) >= MAX_KEYWORDS_PER_USER:
             await update.message.reply_text(
                 f"❌ 您已达到关键词订阅上限（{MAX_KEYWORDS_PER_USER} 个）\n\n"
@@ -146,7 +149,7 @@ class BotHandlers:
             )
             return
 
-        subscription = self.db.add_subscription(chat_id, keyword)
+        subscription = self.db.add_subscription(chat_id, keyword, forum=self.forum_id)
         if subscription:
             # Invalidate cache
             self.cache.invalidate_keywords()
@@ -176,7 +179,7 @@ class BotHandlers:
             await update.message.reply_text("❌ 关键词不能为空")
             return
 
-        if self.db.remove_subscription(chat_id, keyword):
+        if self.db.remove_subscription(chat_id, keyword, forum=self.forum_id):
             # Invalidate cache
             self.cache.invalidate_keywords()
             self.cache.invalidate_subscribers(keyword)
@@ -187,8 +190,8 @@ class BotHandlers:
 
     def _build_keyword_list_message(self, chat_id: int) -> tuple[str, Optional[InlineKeyboardMarkup]]:
         """Build keyword list message with inline keyboard"""
-        subscriptions = self.db.get_user_subscriptions(chat_id)
-        is_subscribe_all = self.db.is_subscribe_all(chat_id)
+        subscriptions = self.db.get_user_subscriptions(chat_id, forum=self.forum_id)
+        is_subscribe_all = self.db.is_subscribe_all(chat_id, forum=self.forum_id)
 
         lines = []
         if is_subscribe_all:
@@ -236,13 +239,13 @@ class BotHandlers:
         """Handle /subscribe_all command"""
         chat_id = update.effective_chat.id
 
-        if self.db.add_subscribe_all(chat_id):
+        if self.db.add_subscribe_all(chat_id, forum=self.forum_id):
             # Invalidate cache
             self.cache.invalidate_subscribe_all()
 
             await update.message.reply_text(
                 "✅ 成功订阅所有新帖子！\n\n"
-                "您将收到 Linux.do 所有新帖子的通知。\n"
+                f"您将收到 {self.forum_name} 所有新帖子的通知。\n"
                 "使用 /unsubscribe_all 可取消订阅。"
             )
         else:
@@ -253,7 +256,7 @@ class BotHandlers:
         """Handle /unsubscribe_all command"""
         chat_id = update.effective_chat.id
 
-        if self.db.remove_subscribe_all(chat_id):
+        if self.db.remove_subscribe_all(chat_id, forum=self.forum_id):
             # Invalidate cache
             self.cache.invalidate_subscribe_all()
 
@@ -289,7 +292,7 @@ class BotHandlers:
             return
 
         # Check author subscription limit
-        current_count = self.db.get_user_subscription_count(chat_id)
+        current_count = self.db.get_user_subscription_count(chat_id, forum=self.forum_id)
         if current_count >= MAX_AUTHORS_PER_USER:
             await update.message.reply_text(
                 f"❌ 您已达到用户订阅上限（{MAX_AUTHORS_PER_USER} 个）\n\n"
@@ -297,7 +300,7 @@ class BotHandlers:
             )
             return
 
-        if self.db.add_user_subscription(chat_id, author):
+        if self.db.add_user_subscription(chat_id, author, forum=self.forum_id):
             # Invalidate cache
             self.cache.invalidate_authors()
             self.cache.invalidate_author_subscribers(author.lower())
@@ -332,7 +335,7 @@ class BotHandlers:
             await update.message.reply_text("❌ 用户名不能为空")
             return
 
-        if self.db.remove_user_subscription(chat_id, author):
+        if self.db.remove_user_subscription(chat_id, author, forum=self.forum_id):
             # Invalidate cache
             self.cache.invalidate_authors()
             self.cache.invalidate_author_subscribers(author.lower())
@@ -343,7 +346,7 @@ class BotHandlers:
 
     def _build_user_list_message(self, chat_id: int) -> tuple[str, Optional[InlineKeyboardMarkup]]:
         """Build user list message with inline keyboard"""
-        authors = self.db.get_user_author_subscriptions(chat_id)
+        authors = self.db.get_user_author_subscriptions(chat_id, forum=self.forum_id)
 
         if not authors:
             return (
@@ -374,10 +377,10 @@ class BotHandlers:
     @require_registration
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /stats command - show keyword statistics"""
-        stats = self.db.get_stats()
+        stats = self.db.get_stats(forum=self.forum_id)
 
         await update.message.reply_text(
-            "📊 关键词热度统计\n\n"
+            f"📊 {self.forum_name} 统计\n\n"
             f"👥 总用户数：{stats['user_count']}\n"
             f"🔑 关键词数：{stats['keyword_count']}\n"
             f"📝 总订阅数：{stats['subscription_count']}\n"
@@ -427,7 +430,7 @@ class BotHandlers:
         elif query.data.startswith("confirm_kw:"):
             await query.answer()
             keyword = query.data[11:]
-            if self.db.remove_subscription(chat_id, keyword):
+            if self.db.remove_subscription(chat_id, keyword, forum=self.forum_id):
                 self.cache.invalidate_keywords()
                 self.cache.invalidate_subscribers(keyword)
             text, keyboard = self._build_keyword_list_message(chat_id)
@@ -453,7 +456,7 @@ class BotHandlers:
         elif query.data.startswith("confirm_user:"):
             await query.answer()
             author = query.data[13:]
-            if self.db.remove_user_subscription(chat_id, author):
+            if self.db.remove_user_subscription(chat_id, author, forum=self.forum_id):
                 self.cache.invalidate_authors()
                 self.cache.invalidate_author_subscribers(author.lower())
             text, keyboard = self._build_user_list_message(chat_id)
@@ -468,12 +471,12 @@ class BotHandlers:
         elif query.data.startswith("quick_kw:"):
             keyword = query.data[9:]
             # 检查数量限制
-            current_count = len(self.db.get_user_subscriptions(chat_id))
+            current_count = len(self.db.get_user_subscriptions(chat_id, forum=self.forum_id))
             if current_count >= MAX_KEYWORDS_PER_USER:
                 await query.answer(f"已达上限 {MAX_KEYWORDS_PER_USER} 个，请先删除", show_alert=True)
                 return
             await query.answer()
-            if self.db.add_subscription(chat_id, keyword):
+            if self.db.add_subscription(chat_id, keyword, forum=self.forum_id):
                 self.cache.invalidate_keywords()
                 self.cache.invalidate_subscribers(keyword)
             text, keyboard = self._build_keyword_list_message(chat_id)
@@ -483,12 +486,12 @@ class BotHandlers:
         elif query.data.startswith("quick_user:"):
             author = query.data[11:]
             # 检查数量限制
-            current_count = self.db.get_user_subscription_count(chat_id)
+            current_count = self.db.get_user_subscription_count(chat_id, forum=self.forum_id)
             if current_count >= MAX_AUTHORS_PER_USER:
                 await query.answer(f"已达上限 {MAX_AUTHORS_PER_USER} 个，请先删除", show_alert=True)
                 return
             await query.answer()
-            if self.db.add_user_subscription(chat_id, author):
+            if self.db.add_user_subscription(chat_id, author, forum=self.forum_id):
                 self.cache.invalidate_authors()
                 self.cache.invalidate_author_subscribers(author.lower())
             text, keyboard = self._build_user_list_message(chat_id)

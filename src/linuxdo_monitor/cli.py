@@ -1,7 +1,7 @@
 import click
 
 from . import __version__
-from .config import AppConfig, ConfigManager, SourceType
+from .config import AppConfig, ConfigManager, SourceType, ForumConfig
 
 
 @click.group(name="linux-do-monitor", help="Linux.do 关键词监控机器人")
@@ -24,31 +24,40 @@ def version():
 def init(config_dir):
     config_manager = ConfigManager(config_dir)
 
-    click.echo("🚀 Linux.do 关键词监控机器人 - 初始化配置\n")
+    click.echo("🚀 关键词监控机器人 - 初始化配置\n")
 
     # Check existing config
     if config_manager.exists():
         existing = config_manager.load()
-        click.echo("检测到已有配置：")
-        click.echo(f"  Bot Token: {existing.bot_token[:10]}...{existing.bot_token[-5:]}")
-        click.echo(f"  数据源: {existing.source_type.value}")
-        if existing.source_type == SourceType.RSS:
-            click.echo(f"  RSS URL: {existing.rss_url}")
-        else:
-            click.echo(f"  Discourse URL: {existing.discourse_url}")
-            click.echo(f"  Cookie: {'已配置' if existing.discourse_cookie else '未配置'}")
-        click.echo(f"  拉取间隔: {existing.fetch_interval}秒")
-        if not click.confirm("\n是否覆盖现有配置？", default=False):
-            click.echo("已取消")
-            return
+        forums = existing.get_enabled_forums()
+        if forums:
+            forum = forums[0]
+            click.echo("检测到已有配置：")
+            click.echo(f"  论坛: {forum.name} ({forum.forum_id})")
+            click.echo(f"  Bot Token: {forum.bot_token[:10]}...{forum.bot_token[-5:]}")
+            click.echo(f"  数据源: {forum.source_type.value}")
+            if forum.source_type == SourceType.RSS:
+                click.echo(f"  RSS URL: {forum.rss_url}")
+            else:
+                click.echo(f"  Discourse URL: {forum.discourse_url}")
+                click.echo(f"  Cookie: {'已配置' if forum.discourse_cookie else '未配置'}")
+            click.echo(f"  拉取间隔: {forum.fetch_interval}秒")
+            if not click.confirm("\n是否覆盖现有配置？", default=False):
+                click.echo("已取消")
+                return
+
+    # Get forum info
+    click.echo("\n1. 论坛信息")
+    forum_id = click.prompt("   论坛 ID (如 linux-do)", type=str, default="linux-do")
+    forum_name = click.prompt("   论坛名称 (如 Linux.do)", type=str, default="Linux.do")
 
     # Get bot token
-    click.echo("\n1. Telegram Bot Token")
+    click.echo("\n2. Telegram Bot Token")
     click.echo("   从 @BotFather 获取你的 Bot Token")
     bot_token = click.prompt("   请输入 Bot Token", type=str)
 
     # Choose data source
-    click.echo("\n2. 选择数据源")
+    click.echo("\n3. 选择数据源")
     click.echo("   [1] RSS (公开内容，无需登录)")
     click.echo("   [2] Discourse API (需要 Cookie，可获取登录后内容)")
     source_choice = click.prompt("   请选择", type=int, default=1)
@@ -61,42 +70,60 @@ def init(config_dir):
     discourse_cookie = None
 
     if source_type == SourceType.RSS:
-        click.echo("\n3. RSS 订阅地址")
+        click.echo("\n4. RSS 订阅地址")
         rss_url = click.prompt(
             "   请输入 RSS URL",
             type=str,
             default="https://linux.do/latest.rss"
         )
     else:
-        click.echo("\n3. Discourse 配置")
+        click.echo("\n4. Discourse 配置")
         discourse_url = click.prompt(
             "   请输入 Discourse URL",
             type=str,
             default="https://linux.do"
         )
         click.echo("\n   获取 Cookie 方法：")
-        click.echo("   1. 浏览器登录 Linux.do")
+        click.echo("   1. 浏览器登录论坛")
         click.echo("   2. F12 打开开发者工具 -> Network")
         click.echo("   3. 刷新页面，找到任意请求")
         click.echo("   4. 复制 Request Headers 中的 Cookie 值")
         discourse_cookie = click.prompt("   请输入 Cookie", type=str)
 
     # Get fetch interval
-    click.echo("\n4. 拉取间隔")
+    click.echo("\n5. 拉取间隔")
     fetch_interval = click.prompt(
         "   请输入拉取间隔（秒）",
         type=int,
         default=60
     )
 
-    # Save config
-    config = AppConfig(
+    # Get admin chat id (optional)
+    click.echo("\n6. 管理员 Chat ID (可选，用于接收系统告警)")
+    admin_chat_id_str = click.prompt(
+        "   请输入管理员 Chat ID (留空跳过)",
+        type=str,
+        default=""
+    )
+    admin_chat_id = int(admin_chat_id_str) if admin_chat_id_str else None
+
+    # Create forum config
+    forum_config = ForumConfig(
+        forum_id=forum_id,
+        name=forum_name,
         bot_token=bot_token,
         source_type=source_type,
         rss_url=rss_url,
         discourse_url=discourse_url,
         discourse_cookie=discourse_cookie,
-        fetch_interval=fetch_interval
+        fetch_interval=fetch_interval,
+        enabled=True
+    )
+
+    # Save config
+    config = AppConfig(
+        forums=[forum_config],
+        admin_chat_id=admin_chat_id
     )
     config_manager.save(config)
 
@@ -120,15 +147,26 @@ def config(config_dir):
 
     cfg = config_manager.load()
     click.echo("📋 当前配置：\n")
-    click.echo(f"  Bot Token: {cfg.bot_token[:10]}...{cfg.bot_token[-5:]}")
-    click.echo(f"  数据源: {cfg.source_type.value}")
-    if cfg.source_type == SourceType.RSS:
-        click.echo(f"  RSS URL: {cfg.rss_url}")
-    else:
-        click.echo(f"  Discourse URL: {cfg.discourse_url}")
-        click.echo(f"  Cookie: {'已配置' if cfg.discourse_cookie else '未配置'}")
-    click.echo(f"  拉取间隔: {cfg.fetch_interval}秒")
-    click.echo(f"\n  配置文件: {config_manager.config_path}")
+
+    if cfg.admin_chat_id:
+        click.echo(f"  管理员 Chat ID: {cfg.admin_chat_id}")
+
+    forums = cfg.get_enabled_forums()
+    click.echo(f"  启用的论坛数: {len(forums)}\n")
+
+    for i, forum in enumerate(forums, 1):
+        click.echo(f"  [{i}] {forum.name} ({forum.forum_id})")
+        click.echo(f"      Bot Token: {forum.bot_token[:10]}...{forum.bot_token[-5:]}")
+        click.echo(f"      数据源: {forum.source_type.value}")
+        if forum.source_type == SourceType.RSS:
+            click.echo(f"      RSS URL: {forum.rss_url}")
+        else:
+            click.echo(f"      Discourse URL: {forum.discourse_url}")
+            click.echo(f"      Cookie: {'已配置' if forum.discourse_cookie else '未配置'}")
+        click.echo(f"      拉取间隔: {forum.fetch_interval}秒")
+        click.echo()
+
+    click.echo(f"  配置文件: {config_manager.config_path}")
     click.echo(f"  数据库: {config_manager.db_path}")
 
 
@@ -139,7 +177,13 @@ def config(config_dir):
     default=None,
     help="配置文件目录"
 )
-def set_cookie(config_dir):
+@click.option(
+    "--forum-id",
+    type=str,
+    default=None,
+    help="论坛 ID (默认更新第一个论坛)"
+)
+def set_cookie(config_dir, forum_id):
     """Update Discourse cookie without reinitializing"""
     config_manager = ConfigManager(config_dir)
 
@@ -148,23 +192,118 @@ def set_cookie(config_dir):
         return
 
     cfg = config_manager.load()
+    forums = cfg.forums
 
-    click.echo("🔑 更新 Discourse Cookie\n")
+    if not forums:
+        click.echo("❌ 没有配置任何论坛")
+        return
+
+    # Find target forum
+    target_forum = None
+    if forum_id:
+        target_forum = cfg.get_forum(forum_id)
+        if not target_forum:
+            click.echo(f"❌ 找不到论坛: {forum_id}")
+            return
+    else:
+        target_forum = forums[0]
+
+    click.echo(f"🔑 更新 {target_forum.name} 的 Discourse Cookie\n")
     click.echo("获取 Cookie 方法：")
-    click.echo("1. 浏览器登录 Linux.do")
+    click.echo("1. 浏览器登录论坛")
     click.echo("2. F12 打开开发者工具 -> Network")
     click.echo("3. 刷新页面，找到任意请求")
     click.echo("4. 复制 Request Headers 中的 Cookie 值\n")
 
     new_cookie = click.prompt("请输入新的 Cookie", type=str)
 
-    cfg.discourse_cookie = new_cookie
-    if cfg.source_type == SourceType.RSS:
+    target_forum.discourse_cookie = new_cookie
+    if target_forum.source_type == SourceType.RSS:
         if click.confirm("是否同时切换数据源为 Discourse API？", default=True):
-            cfg.source_type = SourceType.DISCOURSE
+            target_forum.source_type = SourceType.DISCOURSE
 
     config_manager.save(cfg)
     click.echo("\n✅ Cookie 已更新")
+
+
+@cli.command(name="db-version", help="查看数据库版本")
+@click.option(
+    "--config-dir",
+    type=click.Path(),
+    default=None,
+    help="配置文件目录"
+)
+def db_version(config_dir):
+    """查看数据库版本"""
+    config_manager = ConfigManager(config_dir)
+    db_path = config_manager.get_db_path()
+
+    if not db_path.exists():
+        click.echo("❌ 数据库文件不存在")
+        return
+
+    from .migrations import get_schema_version, CURRENT_VERSION
+
+    current = get_schema_version(db_path)
+    click.echo("📊 数据库版本信息:")
+    click.echo(f"   当前版本: v{current}")
+    click.echo(f"   最新版本: v{CURRENT_VERSION}")
+    click.echo(f"   数据库路径: {db_path}")
+
+    if current < CURRENT_VERSION:
+        click.echo("\n⚠️  需要迁移！请运行: linux-do-monitor db-migrate")
+    else:
+        click.echo("\n✅ 数据库已是最新版本")
+
+
+@cli.command(name="db-migrate", help="执行数据库迁移")
+@click.option(
+    "--config-dir",
+    type=click.Path(),
+    default=None,
+    help="配置文件目录"
+)
+@click.option(
+    "--yes", "-y",
+    is_flag=True,
+    help="跳过确认提示"
+)
+def db_migrate(config_dir, yes):
+    """执行数据库迁移"""
+    config_manager = ConfigManager(config_dir)
+    db_path = config_manager.get_db_path()
+
+    if not db_path.exists():
+        click.echo("❌ 数据库文件不存在，无需迁移")
+        return
+
+    from .migrations import get_schema_version, migrate, CURRENT_VERSION
+
+    current = get_schema_version(db_path)
+
+    if current >= CURRENT_VERSION:
+        click.echo(f"✅ 数据库已是最新版本 (v{current})")
+        return
+
+    click.echo("📊 数据库迁移:")
+    click.echo(f"   当前版本: v{current}")
+    click.echo(f"   目标版本: v{CURRENT_VERSION}")
+    click.echo(f"   数据库路径: {db_path}")
+
+    if not yes:
+        click.echo("\n⚠️  建议先备份数据库:")
+        click.echo(f"   cp {db_path} {db_path}.bak")
+        if not click.confirm("\n是否继续迁移？"):
+            click.echo("已取消")
+            return
+
+    click.echo("\n开始迁移...")
+    try:
+        old_ver, new_ver = migrate(db_path)
+        click.echo(f"\n✅ 迁移完成: v{old_ver} → v{new_ver}")
+    except Exception as e:
+        click.echo(f"\n❌ 迁移失败: {e}")
+        raise
 
 
 @cli.command(help="启动监控服务")
@@ -193,23 +332,44 @@ def run(config_dir, web_port, web_password):
         click.echo("❌ 配置文件不存在，请先运行 'linux-do-monitor init'")
         return
 
+    # 检查数据库版本
+    db_path = config_manager.get_db_path()
+    if db_path.exists():
+        from .migrations import check_migration_needed
+        needs_migration, current_ver, latest_ver = check_migration_needed(db_path)
+        if needs_migration:
+            click.echo(f"❌ 数据库版本过旧 (v{current_ver})，需要迁移到 v{latest_ver}")
+            click.echo(f"   请先运行: linux-do-monitor db-migrate --config-dir {config_dir or '.'}")
+            return
+
     # 配置日志（输出到 stdout + 文件）
     from .app import setup_logging
     log_dir = config_manager.config_dir / "logs"
     setup_logging(log_dir)
 
     cfg = config_manager.load()
-    click.echo("🚀 启动 Linux.do 关键词监控服务...")
-    click.echo(f"   数据源: {cfg.source_type.value}")
-    if cfg.source_type == SourceType.RSS:
-        click.echo(f"   RSS URL: {cfg.rss_url}")
-    else:
-        click.echo(f"   Discourse URL: {cfg.discourse_url}")
-    click.echo(f"   拉取间隔: {cfg.fetch_interval}秒")
+
+    # Get enabled forums
+    enabled_forums = cfg.get_enabled_forums()
+    if not enabled_forums:
+        click.echo("❌ 没有启用的论坛配置")
+        return
+
+    click.echo("🚀 启动关键词监控服务...")
+    click.echo(f"   启用论坛数: {len(enabled_forums)}")
+    for forum_config in enabled_forums:
+        click.echo(f"   - {forum_config.name} ({forum_config.forum_id}): {forum_config.source_type.value}")
     click.echo(f"   日志目录: {log_dir}\n")
 
-    from .app import Application
-    app = Application(cfg, config_manager.get_db_path(), config_manager)
+    from .app import MultiForumApplication
+    from .database import Database
+
+    db = Database(config_manager.get_db_path())
+    app = MultiForumApplication(
+        config=cfg,
+        db=db,
+        config_manager=config_manager
+    )
 
     # Start web server if port specified
     if web_port:

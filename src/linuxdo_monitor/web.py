@@ -107,11 +107,11 @@ def test_cookie(cookie: str, base_url: str = "https://linux.do", flaresolverr_ur
                     return {"valid": False, "error": "Cookie 无效或已过期", "error_type": "cookie_invalid"}
                 if "errors" in data:
                     return {"valid": False, "error": data["errors"][0], "error_type": "cookie_invalid"}
-            except:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 pass
             return {"valid": False, "error": f"HTTP {status_code}", "error_type": "service_error"}
-    except json.JSONDecodeError as e:
-        return {"valid": False, "error": f"JSON 解析失败，可能返回了 HTML 页面", "error_type": "service_error"}
+    except json.JSONDecodeError:
+        return {"valid": False, "error": "JSON 解析失败，可能返回了 HTML 页面", "error_type": "service_error"}
     except Exception as e:
         # 网络错误、超时等都是服务错误
         error_str = str(e)
