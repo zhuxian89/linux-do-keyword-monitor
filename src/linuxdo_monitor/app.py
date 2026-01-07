@@ -111,14 +111,57 @@ class Application:
             logger.error("热更新失败：无法加载配置")
             return
 
+        old_config = self.config
+
         # Update source
         self.config = new_config
         self.source = create_source(new_config)
         # Reset cookie invalid state on config reload
         self._cookie_fail_count = 0
         self._cookie_notify_round = 0
+        # Reset fetch fail state on config reload
+        self._fetch_fail_count = 0
+        self._fetch_fail_notified = False
         # Invalidate cache on config change
         self.cache.clear_all()
+
+        # 更新 scheduler 定时任务间隔
+        if self.scheduler.running:
+            # 更新数据拉取间隔
+            if old_config.fetch_interval != new_config.fetch_interval:
+                self.scheduler.reschedule_job(
+                    "data_fetch",
+                    trigger="interval",
+                    seconds=new_config.fetch_interval
+                )
+                logger.info(f"⏰ 数据拉取间隔已更新: {old_config.fetch_interval}s → {new_config.fetch_interval}s")
+
+            # 更新 Cookie 检测间隔
+            if old_config.cookie_check_interval != new_config.cookie_check_interval:
+                if new_config.cookie_check_interval > 0:
+                    # 如果之前禁用了，现在启用
+                    job = self.scheduler.get_job("cookie_check")
+                    if job:
+                        self.scheduler.reschedule_job(
+                            "cookie_check",
+                            trigger="interval",
+                            seconds=new_config.cookie_check_interval
+                        )
+                    else:
+                        self.scheduler.add_job(
+                            self._check_cookie_task,
+                            "interval",
+                            seconds=new_config.cookie_check_interval,
+                            id="cookie_check"
+                        )
+                    logger.info(f"🔐 Cookie 检测间隔已更新: {old_config.cookie_check_interval}s → {new_config.cookie_check_interval}s")
+                else:
+                    # 禁用 Cookie 检测
+                    job = self.scheduler.get_job("cookie_check")
+                    if job:
+                        self.scheduler.remove_job("cookie_check")
+                        logger.info("🔐 Cookie 检测已禁用")
+
         logger.info(f"🔄 配置已热更新，数据源: {self.source.get_source_name()}")
 
     async def _notify_admin(self, message: str) -> None:
@@ -147,6 +190,10 @@ class Application:
 
         if not self.config.discourse_cookie:
             return {"valid": False, "error_type": "cookie_invalid", "error": "Cookie 未配置"}
+
+        # 打印当前使用的 cookie（只显示前50字符）
+        cookie_preview = self.config.discourse_cookie[:50] + "..." if len(self.config.discourse_cookie) > 50 else self.config.discourse_cookie
+        logger.info(f"🔍 检测 Cookie: {cookie_preview}")
 
         result = test_cookie(self.config.discourse_cookie, self.config.discourse_url, self.config.flaresolverr_url)
         return result
