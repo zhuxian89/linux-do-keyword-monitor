@@ -199,10 +199,6 @@
                 <a href="{{ url_for('linuxdo.users_page') }}?pwd={{ password }}&forum_id={{ forum_id }}" class="btn btn-outline-primary btn-sm">
                     <i class="bi bi-people"></i> 查看用户统计
                 </a>
-                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearCache()">
-                    <i class="bi bi-arrow-clockwise"></i> 刷新缓存
-                </button>
-                <div id="cache-result" class="mt-2" style="display: none;"></div>
             </div>
         </div>
     </div>
@@ -212,7 +208,6 @@
 {% block extra_js %}
 <script>
 const TEST_COOKIE_URL = '{{ url_for("linuxdo.test_cookie_route") }}?pwd={{ password }}&forum_id={{ forum_id }}';
-const CLEAR_CACHE_URL = '{{ url_for("linuxdo.clear_cache") }}?pwd={{ password }}';
 
 async function testCookie() {
     const resultDiv = document.getElementById('test-result');
@@ -250,31 +245,6 @@ async function testCookie() {
         resultDiv.className = 'alert alert-danger';
         resultDiv.innerHTML = '<i class="bi bi-x-circle"></i> 测试失败: ' + e.message;
     }
-}
-
-async function clearCache() {
-    const resultDiv = document.getElementById('cache-result');
-    resultDiv.style.display = 'block';
-    resultDiv.className = 'alert alert-warning';
-    resultDiv.innerHTML = '<i class="bi bi-hourglass-split"></i> 正在清除...';
-
-    try {
-        const response = await fetch(CLEAR_CACHE_URL);
-        const data = await response.json();
-
-        if (data.success) {
-            resultDiv.className = 'alert alert-success';
-            resultDiv.innerHTML = '<i class="bi bi-check-circle"></i> ' + data.message;
-        } else {
-            resultDiv.className = 'alert alert-danger';
-            resultDiv.innerHTML = '<i class="bi bi-x-circle"></i> ' + data.error;
-        }
-    } catch (e) {
-        resultDiv.className = 'alert alert-danger';
-        resultDiv.innerHTML = '<i class="bi bi-x-circle"></i> 清除失败: ' + e.message;
-    }
-
-    setTimeout(() => { resultDiv.style.display = 'none'; }, 3000);
 }
 </script>
 {% endblock %}
