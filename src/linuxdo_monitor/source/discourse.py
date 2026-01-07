@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import time
 from datetime import datetime
 from typing import List, Optional
 
@@ -59,44 +60,51 @@ class DiscourseSource(BaseSource):
             return self._fetch_via_flaresolverr(url)
         return self._fetch_direct(url)
 
-    def _fetch_via_flaresolverr(self, url: str) -> List[Post]:
-        """通过 FlareSolverr 获取数据"""
-        try:
-            payload = {
-                "cmd": "request.get",
-                "url": url,
-                "maxTimeout": 60000,  # 60 秒，CF 挑战可能需要更长时间
-            }
-            if self.cookie:
-                # 支持多种分隔格式
-                normalized = self.cookie.replace("\r\n", ";").replace("\n", ";").replace(";;", ";")
-                cookies = []
-                for item in normalized.split(";"):
-                    item = item.strip()
-                    if "=" in item:
-                        k, v = item.split("=", 1)
-                        k = k.strip()
-                        if k in ("_t", "_forum_session"):
-                            cookies.append({"name": k, "value": v})
-                payload["cookies"] = cookies
+    def _fetch_via_flaresolverr(self, url: str, max_retries: int = 3) -> List[Post]:
+        """通过 FlareSolverr 获取数据，支持重试"""
+        payload = {
+            "cmd": "request.get",
+            "url": url,
+            "maxTimeout": 60000,  # 60 秒，CF 挑战可能需要更长时间
+        }
+        if self.cookie:
+            # 支持多种分隔格式
+            normalized = self.cookie.replace("\r\n", ";").replace("\n", ";").replace(";;", ";")
+            cookies = []
+            for item in normalized.split(";"):
+                item = item.strip()
+                if "=" in item:
+                    k, v = item.split("=", 1)
+                    k = k.strip()
+                    if k in ("_t", "_forum_session"):
+                        cookies.append({"name": k, "value": v})
+            payload["cookies"] = cookies
 
-            resp = std_requests.post(
-                f"{self.flaresolverr_url}/v1",
-                json=payload,
-                timeout=90  # 比 maxTimeout 多留一些余量
-            )
-            resp.raise_for_status()
-            result = resp.json()
+        last_error = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                resp = std_requests.post(
+                    f"{self.flaresolverr_url}/v1",
+                    json=payload,
+                    timeout=90  # 比 maxTimeout 多留一些余量
+                )
+                resp.raise_for_status()
+                result = resp.json()
 
-            if result.get("status") != "ok":
-                raise Exception(f"FlareSolverr error: {result.get('message')}")
+                if result.get("status") != "ok":
+                    raise Exception(f"FlareSolverr error: {result.get('message')}")
 
-            response_text = extract_json_from_html(result["solution"]["response"])
-            data = json.loads(response_text)
-            return self._parse_response(data)
-        except Exception as e:
-            logger.error(f"FlareSolverr 请求失败: {e}")
-            raise
+                response_text = extract_json_from_html(result["solution"]["response"])
+                data = json.loads(response_text)
+                return self._parse_response(data)
+            except Exception as e:
+                last_error = e
+                logger.warning(f"FlareSolverr 请求失败 (尝试 {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    time.sleep(5)  # 等待 5 秒后重试
+
+        logger.error(f"FlareSolverr 请求失败，已重试 {max_retries} 次: {last_error}")
+        raise last_error
 
     def _fetch_direct(self, url: str) -> List[Post]:
         """直接请求（需要有效的 cf_clearance）"""

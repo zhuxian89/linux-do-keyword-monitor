@@ -61,13 +61,12 @@ def test_cookie(cookie: str, base_url: str = "https://linux.do", flaresolverr_ur
             payload = {
                 "cmd": "request.get",
                 "url": url,
-                "maxTimeout": 30000,
-                "headers": {"Accept": "application/json"},
+                "maxTimeout": 60000,
             }
             if needed_cookies:
                 payload["cookies"] = [{"name": k, "value": v} for k, v in needed_cookies.items()]
 
-            resp = std_requests.post(f"{flaresolverr_url}/v1", json=payload, timeout=60)
+            resp = std_requests.post(f"{flaresolverr_url}/v1", json=payload, timeout=90)
             resp.raise_for_status()
             result = resp.json()
 
