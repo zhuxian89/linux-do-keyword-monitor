@@ -96,6 +96,9 @@ class Application:
         self._cookie_fail_count = 0  # 连续失败计数器
         self._cookie_fail_threshold = 5  # 连续失败阈值
         self._cookie_notify_round = 0  # 第几轮通知
+        self._fetch_fail_count = 0  # 拉取失败计数器
+        self._fetch_fail_threshold = 5  # 拉取连续失败阈值
+        self._fetch_fail_notified = False  # 是否已发送拉取失败告警
 
     def reload_config(self):
         """Hot reload configuration"""
@@ -130,16 +133,23 @@ class Application:
         except Exception as e:
             logger.error(f"发送管理员告警失败: {e}")
 
-    def _check_cookie_valid(self) -> bool:
-        """Check if discourse cookie is valid"""
+    def _check_cookie_valid(self) -> dict:
+        """Check if discourse cookie is valid
+
+        Returns:
+            dict with keys:
+            - valid: bool
+            - error_type: "cookie_invalid" | "service_error" | None
+            - error: str | None
+        """
         if self.config.source_type != SourceType.DISCOURSE:
-            return True
+            return {"valid": True, "error_type": None, "error": None}
 
         if not self.config.discourse_cookie:
-            return False
+            return {"valid": False, "error_type": "cookie_invalid", "error": "Cookie 未配置"}
 
         result = test_cookie(self.config.discourse_cookie, self.config.discourse_url, self.config.flaresolverr_url)
-        return result.get("valid", False)
+        return result
 
     def _fallback_to_rss(self) -> BaseSource:
         """Create RSS fallback source (deprecated, kept for compatibility)"""
@@ -152,23 +162,35 @@ class Application:
 
         # 连续测试 3 次
         fail_count = 0
+        last_result = None
         for i in range(3):
-            if not self._check_cookie_valid():
+            result = self._check_cookie_valid()
+            last_result = result
+            if not result.get("valid", False):
                 fail_count += 1
                 if i < 2:  # 前两次失败后等待 2 秒再试
-                    import asyncio
                     await asyncio.sleep(2)
             else:
                 break
 
         if fail_count == 3:
-            # 3 次都失败，通知管理员
+            error_type = last_result.get("error_type", "unknown") if last_result else "unknown"
+            error_msg = last_result.get("error", "未知错误") if last_result else "未知错误"
+
+            # 服务错误（FlareSolverr 超时等）只记录日志，不发告警
+            # 因为 fetch_and_notify 已经有告警逻辑了
+            if error_type == "service_error":
+                logger.warning(f"⚠️ Cookie 检测失败（服务错误）: {error_msg}")
+                return
+
+            # Cookie 真正失效才发告警
             self._cookie_fail_count += 1
-            logger.warning(f"⚠️ Cookie 连续 3 次检测失败（第 {self._cookie_fail_count} 轮）")
+            logger.warning(f"⚠️ Cookie 连续 3 次检测失败（第 {self._cookie_fail_count} 轮）: {error_msg}")
             for i in range(1, 4):
                 await self._notify_admin(
                     f"⚠️ Cookie 可能已失效（第 {self._cookie_fail_count} 轮通知，第 {i}/3 遍）\n\n"
                     f"Discourse Cookie 连续 3 次验证失败。\n"
+                    f"错误信息: {error_msg}\n\n"
                     f"当前仍可拉取公开数据，但部分限制内容可能无法获取。\n\n"
                     f"{'❗' * i} 请检查 Cookie 是否需要更新 {'❗' * i}\n\n"
                     f"更新方式：访问配置页面更新 Cookie"
@@ -357,8 +379,29 @@ class Application:
             # Summary log
             logger.info(f"✅ 拉取完成: 共 {len(posts)} 条, 新增 {len(new_posts)} 条, 推送 {total_sent} 条通知")
 
+            # 拉取成功，重置失败计数
+            if self._fetch_fail_count > 0:
+                logger.info(f"✅ 数据拉取恢复正常（之前连续失败 {self._fetch_fail_count} 次）")
+                if self._fetch_fail_notified:
+                    await self._notify_admin("✅ 数据拉取已恢复正常，之前的告警可以忽略了")
+                self._fetch_fail_count = 0
+                self._fetch_fail_notified = False
+
         except Exception as e:
-            logger.error(f"❌ 数据拉取失败: {e}")
+            self._fetch_fail_count += 1
+            logger.error(f"❌ 数据拉取失败 (第 {self._fetch_fail_count} 次): {e}")
+
+            # 连续失败达到阈值时发送告警
+            if self._fetch_fail_count >= self._fetch_fail_threshold and not self._fetch_fail_notified:
+                self._fetch_fail_notified = True
+                await self._notify_admin(
+                    f"⚠️ 数据拉取连续失败 {self._fetch_fail_count} 次\n\n"
+                    f"错误信息: {e}\n\n"
+                    f"请检查:\n"
+                    f"1. FlareSolverr 服务是否正常\n"
+                    f"2. 网络连接是否正常\n"
+                    f"3. 目标网站是否可访问"
+                )
 
     def run(self) -> None:
         """Start the application"""

@@ -24,7 +24,14 @@ def extract_json_from_html(text):
 
 
 def test_cookie(cookie: str, base_url: str = "https://linux.do", flaresolverr_url: str = None) -> dict:
-    """Test if cookie is valid by checking notifications endpoint"""
+    """Test if cookie is valid by checking notifications endpoint
+
+    Returns:
+        dict with keys:
+        - valid: bool - whether cookie is valid
+        - error: str - error message if not valid
+        - error_type: str - "service_error" (FlareSolverr/network issue) or "cookie_invalid" (cookie expired)
+    """
     try:
         # 提取需要的 cookie
         needed_cookies = {}
@@ -53,7 +60,7 @@ def test_cookie(cookie: str, base_url: str = "https://linux.do", flaresolverr_ur
             result = resp.json()
 
             if result.get("status") != "ok":
-                return {"valid": False, "error": f"FlareSolverr: {result.get('message')}"}
+                return {"valid": False, "error": f"FlareSolverr: {result.get('message')}", "error_type": "service_error"}
 
             response_text = result["solution"]["response"]
             status_code = result["solution"]["status"]
@@ -64,8 +71,8 @@ def test_cookie(cookie: str, base_url: str = "https://linux.do", flaresolverr_ur
             # 检查是否还是 HTML
             if "<html" in response_text.lower()[:100]:
                 if "Just a moment" in response_text:
-                    return {"valid": False, "error": "FlareSolverr 未能绕过 Cloudflare"}
-                return {"valid": False, "error": "返回了 HTML 而非 JSON"}
+                    return {"valid": False, "error": "FlareSolverr 未能绕过 Cloudflare", "error_type": "service_error"}
+                return {"valid": False, "error": "返回了 HTML 而非 JSON", "error_type": "service_error"}
         else:
             # 直接请求
             from curl_cffi import requests
@@ -85,25 +92,29 @@ def test_cookie(cookie: str, base_url: str = "https://linux.do", flaresolverr_ur
             if "errors" in data:
                 error_type = data.get("error_type", "")
                 if error_type == "not_logged_in":
-                    return {"valid": False, "error": "Cookie 无效或已过期"}
-                return {"valid": False, "error": data["errors"][0] if data["errors"] else "未知错误"}
+                    return {"valid": False, "error": "Cookie 无效或已过期", "error_type": "cookie_invalid"}
+                return {"valid": False, "error": data["errors"][0] if data["errors"] else "未知错误", "error_type": "cookie_invalid"}
             return {"valid": True, "message": "Cookie 有效，可以正常访问"}
         elif status_code == 403:
-            return {"valid": False, "error": "被 Cloudflare 拦截，请配置 FlareSolverr"}
+            return {"valid": False, "error": "被 Cloudflare 拦截，请配置 FlareSolverr", "error_type": "service_error"}
         else:
             try:
                 data = json.loads(response_text)
                 if data.get("error_type") == "not_logged_in":
-                    return {"valid": False, "error": "Cookie 无效或已过期"}
+                    return {"valid": False, "error": "Cookie 无效或已过期", "error_type": "cookie_invalid"}
                 if "errors" in data:
-                    return {"valid": False, "error": data["errors"][0]}
+                    return {"valid": False, "error": data["errors"][0], "error_type": "cookie_invalid"}
             except:
                 pass
-            return {"valid": False, "error": f"HTTP {status_code}"}
+            return {"valid": False, "error": f"HTTP {status_code}", "error_type": "service_error"}
     except json.JSONDecodeError as e:
-        return {"valid": False, "error": f"JSON 解析失败，可能返回了 HTML 页面"}
+        return {"valid": False, "error": f"JSON 解析失败，可能返回了 HTML 页面", "error_type": "service_error"}
     except Exception as e:
-        return {"valid": False, "error": str(e)}
+        # 网络错误、超时等都是服务错误
+        error_str = str(e)
+        if "timeout" in error_str.lower() or "connection" in error_str.lower():
+            return {"valid": False, "error": error_str, "error_type": "service_error"}
+        return {"valid": False, "error": error_str, "error_type": "service_error"}
 
 
 class ConfigWebHandler(BaseHTTPRequestHandler):
