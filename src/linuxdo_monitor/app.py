@@ -132,7 +132,9 @@ class Application:
                 self.scheduler.reschedule_job(
                     "data_fetch",
                     trigger="interval",
-                    seconds=new_config.fetch_interval
+                    seconds=new_config.fetch_interval,
+                    misfire_grace_time=None,
+                    coalesce=True
                 )
                 logger.info(f"⏰ 数据拉取间隔已更新: {old_config.fetch_interval}s → {new_config.fetch_interval}s")
 
@@ -145,14 +147,18 @@ class Application:
                         self.scheduler.reschedule_job(
                             "cookie_check",
                             trigger="interval",
-                            seconds=new_config.cookie_check_interval
+                            seconds=new_config.cookie_check_interval,
+                            misfire_grace_time=None,
+                            coalesce=True
                         )
                     else:
                         self.scheduler.add_job(
                             self._check_cookie_task,
                             "interval",
                             seconds=new_config.cookie_check_interval,
-                            id="cookie_check"
+                            id="cookie_check",
+                            misfire_grace_time=None,
+                            coalesce=True
                         )
                     logger.info(f"🔐 Cookie 检测间隔已更新: {old_config.cookie_check_interval}s → {new_config.cookie_check_interval}s")
                 else:
@@ -459,11 +465,15 @@ class Application:
         application = self.bot.setup()
 
         # Schedule fetching
+        # misfire_grace_time: 允许延迟执行的时间（秒），None 表示无限
+        # coalesce: 如果错过多次，只执行一次
         self.scheduler.add_job(
             self.fetch_and_notify,
             "interval",
             seconds=self.config.fetch_interval,
-            id="data_fetch"
+            id="data_fetch",
+            misfire_grace_time=None,
+            coalesce=True
         )
 
         # Schedule cookie check (独立任务)
@@ -472,7 +482,9 @@ class Application:
                 self._check_cookie_task,
                 "interval",
                 seconds=self.config.cookie_check_interval,
-                id="cookie_check"
+                id="cookie_check",
+                misfire_grace_time=None,
+                coalesce=True
             )
 
         # Run initial fetch after bot starts
