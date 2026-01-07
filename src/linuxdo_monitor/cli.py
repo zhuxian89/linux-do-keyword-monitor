@@ -107,6 +107,15 @@ def init(config_dir):
     )
     admin_chat_id = int(admin_chat_id_str) if admin_chat_id_str else None
 
+    # Get SQL admin password (optional)
+    click.echo("\n7. SQL 管理员密码 (可选，用于 Web 界面执行写操作)")
+    sql_admin_password = click.prompt(
+        "   请输入 SQL 管理员密码 (留空则与 Web 密码相同)",
+        type=str,
+        default=""
+    )
+    sql_admin_password = sql_admin_password if sql_admin_password else None
+
     # Create forum config
     forum_config = ForumConfig(
         forum_id=forum_id,
@@ -123,7 +132,8 @@ def init(config_dir):
     # Save config
     config = AppConfig(
         forums=[forum_config],
-        admin_chat_id=admin_chat_id
+        admin_chat_id=admin_chat_id,
+        sql_admin_password=sql_admin_password
     )
     config_manager.save(config)
 
@@ -481,7 +491,8 @@ def run(config_dir, web_port, web_password):
             config_path=config_manager.config_path,
             port=web_port,
             password=web_password,
-            db_path=config_manager.get_db_path()
+            db_path=config_manager.get_db_path(),
+            admin_password=cfg.sql_admin_password
         )
         web_server.set_update_callback(app.reload_config)
         web_server.start()

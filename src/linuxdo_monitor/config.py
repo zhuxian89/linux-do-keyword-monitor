@@ -81,6 +81,12 @@ class AppConfig(BaseModel):
         description="Admin chat ID for receiving alerts"
     )
 
+    # SQL admin password (for web SQL query page)
+    sql_admin_password: str = Field(
+        default="admin",
+        description="Password for SQL admin mode (allows INSERT/UPDATE/DELETE)"
+    )
+
     # Legacy fields (for backward compatibility)
     bot_token: Optional[str] = Field(default=None, description="Legacy: Telegram Bot Token")
     source_type: Optional[SourceType] = Field(default=None, description="Legacy: Data source type")

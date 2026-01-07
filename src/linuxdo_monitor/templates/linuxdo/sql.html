@@ -19,13 +19,25 @@
         <div class="card">
             <div class="card-header">
                 <i class="bi bi-database"></i> SQL 查询
+                {% if admin_mode %}
+                <span class="badge bg-danger ms-2">管理员模式</span>
+                {% else %}
                 <span class="badge bg-warning text-dark ms-2">只读模式</span>
+                {% endif %}
             </div>
             <div class="card-body">
+                {% if admin_mode %}
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>管理员模式:</strong> 可执行所有 SQL 语句，包括 INSERT/UPDATE/DELETE。请谨慎操作！
+                </div>
+                {% else %}
                 <div class="alert alert-info">
                     <i class="bi bi-info-circle"></i>
                     <strong>安全限制:</strong> 只允许 SELECT 查询语句，禁止修改数据。
+                    <a href="{{ url_for('linuxdo.sql_page') }}?pwd={{ password }}&admin={{ admin_password }}" class="alert-link">进入管理员模式</a>
                 </div>
+                {% endif %}
 
                 <div class="mb-3">
                     <label class="form-label">常用查询:</label>
@@ -91,6 +103,8 @@
 {% block extra_js %}
 <script>
 const EXECUTE_URL = '{{ url_for("linuxdo.sql_execute") }}?pwd={{ password }}';
+const ADMIN_MODE = {{ 'true' if admin_mode else 'false' }};
+const ADMIN_KEY = '{{ admin_password if admin_mode else "" }}';
 
 function setQuery(sql) {
     document.getElementById('sql-input').value = sql;
@@ -111,16 +125,26 @@ async function executeQuery() {
     clearResult();
 
     try {
+        let body = 'sql=' + encodeURIComponent(sql);
+        if (ADMIN_MODE) {
+            body += '&admin=' + encodeURIComponent(ADMIN_KEY);
+        }
+
         const response = await fetch(EXECUTE_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'sql=' + encodeURIComponent(sql)
+            body: body
         });
 
         const data = await response.json();
 
         if (data.success) {
-            showResult(data);
+            if (data.columns) {
+                showResult(data);
+            } else {
+                // Non-SELECT result
+                showMessage(data.message);
+            }
         } else {
             showError(data.error);
         }
@@ -158,6 +182,18 @@ function showError(message) {
     const errorMessage = document.getElementById('error-message');
     errorMessage.innerHTML = '<i class="bi bi-exclamation-triangle"></i> ' + escapeHtml(message);
     errorArea.style.display = 'block';
+}
+
+function showMessage(message) {
+    const resultArea = document.getElementById('result-area');
+    const resultInfo = document.getElementById('result-info');
+    const thead = document.getElementById('result-thead');
+    const tbody = document.getElementById('result-tbody');
+
+    resultInfo.innerHTML = `<span class="badge bg-success">执行成功</span> ${escapeHtml(message)}`;
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+    resultArea.style.display = 'block';
 }
 
 function escapeHtml(text) {

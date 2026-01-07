@@ -129,10 +129,12 @@ linuxdo_bp = Blueprint('linuxdo', __name__, url_prefix='/linuxdo')
 class ConfigWebServer:
     """Flask-based web server for config management"""
 
-    def __init__(self, config_path: Path, port: int = 8080, password: str = "admin", db_path: Optional[Path] = None):
+    def __init__(self, config_path: Path, port: int = 8080, password: str = "admin",
+                 db_path: Optional[Path] = None, admin_password: Optional[str] = None):
         self.config_path = config_path
         self.port = port
         self.password = password
+        self.admin_password = admin_password or password  # Default to same as web password
         self.db_path = db_path
         self.on_config_update: Optional[Callable] = None
 
@@ -485,7 +487,8 @@ class ConfigWebServer:
                 flash('数据库未配置或不存在', 'danger')
                 return redirect(url_for('linuxdo.config_page', pwd=request.args.get('pwd', '')))
 
-            return render_template('linuxdo/sql.html')
+            admin_mode = request.args.get('admin') == web_server.admin_password
+            return render_template('linuxdo/sql.html', admin_mode=admin_mode, admin_password=web_server.admin_password)
 
         @linuxdo_bp.route('/sql/execute', methods=['POST'])
         @require_auth
@@ -495,41 +498,55 @@ class ConfigWebServer:
                 return jsonify({"success": False, "error": "数据库不存在"})
 
             sql = request.form.get('sql', '').strip()
+            admin_mode = request.form.get('admin') == web_server.admin_password
+
             if not sql:
                 return jsonify({"success": False, "error": "SQL 语句不能为空"})
 
-            # Security: Only allow SELECT statements
             sql_upper = sql.upper().strip()
-            if not sql_upper.startswith('SELECT'):
-                return jsonify({"success": False, "error": "安全限制：只允许 SELECT 查询语句"})
 
-            # Block dangerous keywords (as standalone words)
-            import re
-            dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE', 'EXEC', 'EXECUTE']
-            for keyword in dangerous_keywords:
-                # Match keyword as a standalone word (not part of column names like created_at)
-                if re.search(r'\b' + keyword + r'\b', sql_upper):
-                    return jsonify({"success": False, "error": f"安全限制：不允许使用 {keyword}"})
+            # Non-admin: Only allow SELECT statements
+            if not admin_mode:
+                if not sql_upper.startswith('SELECT'):
+                    return jsonify({"success": False, "error": "安全限制：只允许 SELECT 查询语句（管理员模式可执行所有语句）"})
+
+                # Block dangerous keywords (as standalone words)
+                import re
+                dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE', 'EXEC', 'EXECUTE']
+                for keyword in dangerous_keywords:
+                    # Match keyword as a standalone word (not part of column names like created_at)
+                    if re.search(r'\b' + keyword + r'\b', sql_upper):
+                        return jsonify({"success": False, "error": f"安全限制：不允许使用 {keyword}（管理员模式可执行）"})
 
             try:
                 import sqlite3
                 conn = sqlite3.connect(web_server.db_path)
                 conn.row_factory = sqlite3.Row
                 cursor = conn.execute(sql)
-                rows = cursor.fetchall()
 
-                # Convert to list of dicts
-                columns = [description[0] for description in cursor.description] if cursor.description else []
-                data = [dict(row) for row in rows]
+                # For SELECT queries, return results
+                if sql_upper.startswith('SELECT'):
+                    rows = cursor.fetchall()
+                    columns = [description[0] for description in cursor.description] if cursor.description else []
+                    data = [dict(row) for row in rows]
+                    conn.close()
+                    return jsonify({
+                        "success": True,
+                        "columns": columns,
+                        "data": data,
+                        "row_count": len(data)
+                    })
+                else:
+                    # For INSERT/UPDATE/DELETE, commit and return affected rows
+                    conn.commit()
+                    affected = cursor.rowcount
+                    conn.close()
+                    return jsonify({
+                        "success": True,
+                        "message": f"执行成功，影响 {affected} 行",
+                        "affected_rows": affected
+                    })
 
-                conn.close()
-
-                return jsonify({
-                    "success": True,
-                    "columns": columns,
-                    "data": data,
-                    "row_count": len(data)
-                })
             except sqlite3.Error as e:
                 return jsonify({"success": False, "error": f"SQL 错误: {str(e)}"})
             except Exception as e:
