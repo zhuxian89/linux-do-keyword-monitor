@@ -7,7 +7,7 @@ from typing import Tuple
 logger = logging.getLogger(__name__)
 
 # 当前数据库版本
-CURRENT_VERSION = 2
+CURRENT_VERSION = 3
 
 # 迁移脚本
 MIGRATIONS = {
@@ -37,6 +37,59 @@ MIGRATIONS = {
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_unique ON subscriptions(chat_id, keyword, forum)",
         # user_subscriptions: (chat_id, author, forum) 唯一
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_subscriptions_unique ON user_subscriptions(chat_id, author, forum)",
+    ],
+
+    # 版本 3: 修复主键和外键，支持多论坛
+    3: [
+        # 1. 重建 users 表
+        "CREATE TABLE users_new (chat_id INTEGER NOT NULL, forum TEXT NOT NULL DEFAULT 'linux-do', created_at TEXT NOT NULL, PRIMARY KEY (chat_id, forum))",
+        "INSERT OR IGNORE INTO users_new (chat_id, forum, created_at) SELECT chat_id, forum, created_at FROM users",
+        "DROP TABLE users",
+        "ALTER TABLE users_new RENAME TO users",
+        "CREATE INDEX IF NOT EXISTS idx_users_forum ON users(forum)",
+
+        # 2. 重建 subscribe_all 表
+        "CREATE TABLE subscribe_all_new (chat_id INTEGER NOT NULL, forum TEXT NOT NULL DEFAULT 'linux-do', created_at TEXT NOT NULL, PRIMARY KEY (chat_id, forum))",
+        "INSERT OR IGNORE INTO subscribe_all_new (chat_id, forum, created_at) SELECT chat_id, forum, created_at FROM subscribe_all",
+        "DROP TABLE subscribe_all",
+        "ALTER TABLE subscribe_all_new RENAME TO subscribe_all",
+        "CREATE INDEX IF NOT EXISTS idx_subscribe_all_forum ON subscribe_all(forum)",
+
+        # 3. 重建 subscriptions 表（删除外键，修复唯一约束）
+        "CREATE TABLE subscriptions_new (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, keyword TEXT NOT NULL, forum TEXT NOT NULL DEFAULT 'linux-do', created_at TEXT NOT NULL, UNIQUE(chat_id, keyword, forum))",
+        "INSERT OR IGNORE INTO subscriptions_new (id, chat_id, keyword, forum, created_at) SELECT id, chat_id, keyword, forum, created_at FROM subscriptions",
+        "DROP TABLE subscriptions",
+        "ALTER TABLE subscriptions_new RENAME TO subscriptions",
+        "CREATE INDEX IF NOT EXISTS idx_subscriptions_chat_id ON subscriptions(chat_id)",
+        "CREATE INDEX IF NOT EXISTS idx_subscriptions_keyword ON subscriptions(keyword)",
+        "CREATE INDEX IF NOT EXISTS idx_subscriptions_forum ON subscriptions(forum)",
+
+        # 4. 重建 user_subscriptions 表（删除外键，修复唯一约束）
+        "CREATE TABLE user_subscriptions_new (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, author TEXT NOT NULL, forum TEXT NOT NULL DEFAULT 'linux-do', created_at TEXT NOT NULL, UNIQUE(chat_id, author, forum))",
+        "INSERT OR IGNORE INTO user_subscriptions_new (id, chat_id, author, forum, created_at) SELECT id, chat_id, author, forum, created_at FROM user_subscriptions",
+        "DROP TABLE user_subscriptions",
+        "ALTER TABLE user_subscriptions_new RENAME TO user_subscriptions",
+        "CREATE INDEX IF NOT EXISTS idx_user_subscriptions_chat_id ON user_subscriptions(chat_id)",
+        "CREATE INDEX IF NOT EXISTS idx_user_subscriptions_author ON user_subscriptions(author)",
+        "CREATE INDEX IF NOT EXISTS idx_user_subscriptions_forum ON user_subscriptions(forum)",
+
+        # 5. 重建 posts 表
+        "CREATE TABLE posts_new (id TEXT NOT NULL, forum TEXT NOT NULL DEFAULT 'linux-do', title TEXT NOT NULL, link TEXT NOT NULL, pub_date TEXT NOT NULL, author TEXT, PRIMARY KEY (id, forum))",
+        "INSERT OR IGNORE INTO posts_new (id, forum, title, link, pub_date, author) SELECT id, forum, title, link, pub_date, author FROM posts",
+        "DROP TABLE posts",
+        "ALTER TABLE posts_new RENAME TO posts",
+        "CREATE INDEX IF NOT EXISTS idx_posts_pub_date ON posts(pub_date)",
+        "CREATE INDEX IF NOT EXISTS idx_posts_forum ON posts(forum)",
+        "CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author)",
+
+        # 6. 重建 notifications 表
+        "CREATE TABLE notifications_new (chat_id INTEGER NOT NULL, post_id TEXT NOT NULL, keyword TEXT NOT NULL, forum TEXT NOT NULL DEFAULT 'linux-do', created_at TEXT NOT NULL, PRIMARY KEY (chat_id, post_id, keyword, forum))",
+        "INSERT OR IGNORE INTO notifications_new (chat_id, post_id, keyword, forum, created_at) SELECT chat_id, post_id, keyword, forum, created_at FROM notifications",
+        "DROP TABLE notifications",
+        "ALTER TABLE notifications_new RENAME TO notifications",
+        "CREATE INDEX IF NOT EXISTS idx_notifications_chat_post ON notifications(chat_id, post_id)",
+        "CREATE INDEX IF NOT EXISTS idx_notifications_post_id ON notifications(post_id)",
+        "CREATE INDEX IF NOT EXISTS idx_notifications_forum ON notifications(forum)",
     ],
 }
 
