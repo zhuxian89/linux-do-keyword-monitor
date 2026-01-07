@@ -306,6 +306,84 @@ def db_migrate(config_dir, yes):
         raise
 
 
+@cli.command(name="config-migrate", help="将旧格式配置转换为多论坛格式")
+@click.option(
+    "--config-dir",
+    type=click.Path(),
+    default=None,
+    help="配置文件目录"
+)
+@click.option(
+    "--yes", "-y",
+    is_flag=True,
+    help="跳过确认提示"
+)
+def config_migrate(config_dir, yes):
+    """将旧格式配置转换为多论坛格式（一次性操作）"""
+    config_manager = ConfigManager(config_dir)
+
+    if not config_manager.exists():
+        click.echo("❌ 配置文件不存在")
+        return
+
+    import json
+    with open(config_manager.config_path, "r", encoding="utf-8") as f:
+        config = json.load(f)
+
+    # Check if already in new format
+    if config.get('forums'):
+        click.echo("✅ 配置已经是多论坛格式，无需转换")
+        return
+
+    # Check if has legacy fields
+    if not config.get('bot_token'):
+        click.echo("❌ 配置文件格式异常，没有 bot_token 也没有 forums")
+        return
+
+    click.echo("📋 检测到旧格式配置:")
+    click.echo(f"   Bot Token: {config.get('bot_token', '')[:20]}...")
+    click.echo(f"   数据源: {config.get('source_type', 'rss')}")
+    click.echo(f"   Cookie: {'已配置' if config.get('discourse_cookie') else '未配置'}")
+
+    if not yes:
+        if not click.confirm("\n是否转换为多论坛格式？"):
+            click.echo("已取消")
+            return
+
+    # Convert to new format
+    new_forum = {
+        'forum_id': 'linux-do',
+        'name': 'Linux.do',
+        'bot_token': config.get('bot_token'),
+        'source_type': config.get('source_type', 'rss'),
+        'rss_url': config.get('rss_url', 'https://linux.do/latest.rss'),
+        'discourse_url': config.get('discourse_url', 'https://linux.do'),
+        'discourse_cookie': config.get('discourse_cookie'),
+        'flaresolverr_url': config.get('flaresolverr_url'),
+        'fetch_interval': config.get('fetch_interval', 60),
+        'cookie_check_interval': config.get('cookie_check_interval', 0),
+        'enabled': True
+    }
+
+    new_config = {
+        'forums': [new_forum],
+        'admin_chat_id': config.get('admin_chat_id')
+    }
+
+    # Backup old config
+    backup_path = config_manager.config_path.with_suffix('.json.bak')
+    with open(backup_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+    click.echo(f"\n📦 已备份旧配置到: {backup_path}")
+
+    # Save new config
+    with open(config_manager.config_path, "w", encoding="utf-8") as f:
+        json.dump(new_config, f, indent=2, ensure_ascii=False)
+
+    click.echo(f"✅ 配置已转换为多论坛格式")
+    click.echo("\n现在可以通过 Web 界面添加更多论坛了")
+
+
 @cli.command(help="启动监控服务")
 @click.option(
     "--config-dir",

@@ -197,6 +197,11 @@ class ConfigWebServer:
                 config = web_server._load_config()
                 forums = config.get('forums', [])
 
+                # If still using legacy format, reject and ask user to migrate first
+                if not forums and config.get('bot_token'):
+                    flash('请先在服务器执行 linux-do-monitor config-migrate 转换配置格式', 'danger')
+                    return redirect(url_for('index', pwd=request.args.get('pwd', '')))
+
                 # Get form data
                 forum_id = request.form.get('forum_id', '').strip().lower()
                 name = request.form.get('name', '').strip()

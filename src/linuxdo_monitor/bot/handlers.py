@@ -49,7 +49,9 @@ class BotHandlers:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command - register user"""
         chat_id = update.effective_chat.id
+        logger.info(f"[{self.forum_id}] /start 命令: chat_id={chat_id}")
         self.db.add_user(chat_id, forum=self.forum_id)
+        logger.info(f"[{self.forum_id}] 用户已添加到数据库: chat_id={chat_id}, forum={self.forum_id}")
         # 用户回来了，清除封禁标记
         self.db.unmark_user_blocked(chat_id)
         # Clear cache on user registration for safety
