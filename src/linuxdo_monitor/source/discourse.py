@@ -65,8 +65,7 @@ class DiscourseSource(BaseSource):
             payload = {
                 "cmd": "request.get",
                 "url": url,
-                "maxTimeout": self.timeout * 1000,
-                "headers": {"Accept": "application/json"},
+                "maxTimeout": 60000,  # 60 秒，CF 挑战可能需要更长时间
             }
             if self.cookie:
                 # 支持多种分隔格式
@@ -84,7 +83,7 @@ class DiscourseSource(BaseSource):
             resp = std_requests.post(
                 f"{self.flaresolverr_url}/v1",
                 json=payload,
-                timeout=self.timeout + 30
+                timeout=90  # 比 maxTimeout 多留一些余量
             )
             resp.raise_for_status()
             result = resp.json()
