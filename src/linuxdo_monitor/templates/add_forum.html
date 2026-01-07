@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}添加论坛 - Forum Monitor{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{{ url_for('index') }}?pwd={{ password }}">首页</a></li>
+                <li class="breadcrumb-item active">添加论坛</li>
+            </ol>
+        </nav>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-plus-circle"></i> 添加新论坛
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>提示:</strong> 每个论坛需要一个独立的 Telegram Bot。请先在 @BotFather 创建新 Bot。
+                </div>
+
+                <form method="POST" action="{{ url_for('add_forum') }}?pwd={{ password }}">
+                    <!-- 论坛ID -->
+                    <div class="mb-3">
+                        <label class="form-label">
+                            论坛 ID <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" name="forum_id"
+                               placeholder="如: nodeseek, v2ex" required pattern="[a-z0-9\-]+"
+                               title="只能包含小写字母、数字和连字符">
+                        <div class="form-text">唯一标识符，用于数据隔离。只能包含小写字母、数字和连字符。</div>
+                    </div>
+
+                    <!-- 论坛名称 -->
+                    <div class="mb-3">
+                        <label class="form-label">
+                            论坛名称 <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" name="name"
+                               placeholder="如: NodeSeek, V2EX" required>
+                        <div class="form-text">显示名称，用于通知消息。</div>
+                    </div>
+
+                    <!-- Bot Token -->
+                    <div class="mb-3">
+                        <label class="form-label">
+                            Bot Token <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" name="bot_token"
+                               placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz" required>
+                        <div class="form-text">从 @BotFather 获取的 Bot Token。<strong>每个论坛必须使用不同的 Bot！</strong></div>
+                    </div>
+
+                    <!-- 数据源类型 -->
+                    <div class="mb-3">
+                        <label class="form-label">数据源类型</label>
+                        <select class="form-select" name="source_type" id="source_type" onchange="toggleSourceFields()">
+                            <option value="rss" selected>RSS (公开内容，推荐)</option>
+                            <option value="discourse">Discourse API (需要Cookie)</option>
+                        </select>
+                    </div>
+
+                    <!-- RSS URL -->
+                    <div class="mb-3" id="rss_field">
+                        <label class="form-label">RSS URL</label>
+                        <input type="text" class="form-control" name="rss_url"
+                               placeholder="https://www.nodeseek.com/rss.xml">
+                        <div class="form-text">RSS 订阅地址。留空将使用默认格式。</div>
+                    </div>
+
+                    <!-- Discourse URL -->
+                    <div class="mb-3" id="discourse_field" style="display: none;">
+                        <label class="form-label">Discourse URL</label>
+                        <input type="text" class="form-control" name="discourse_url"
+                               placeholder="https://www.nodeseek.com">
+                        <div class="form-text">论坛基础 URL。</div>
+                    </div>
+
+                    <!-- 拉取间隔 -->
+                    <div class="mb-3">
+                        <label class="form-label">拉取间隔 (秒)</label>
+                        <input type="number" class="form-control" name="fetch_interval"
+                               value="60" min="10">
+                        <div class="form-text">数据拉取的时间间隔，建议 60 秒以上。</div>
+                    </div>
+
+                    <hr>
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-plus-circle"></i> 添加论坛
+                    </button>
+                    <a href="{{ url_for('index') }}?pwd={{ password }}" class="btn btn-secondary">
+                        取消
+                    </a>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-lightbulb"></i> 常见论坛 RSS
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2">
+                        <strong>NodeSeek</strong><br>
+                        <code class="small">https://www.nodeseek.com/rss.xml</code>
+                    </li>
+                    <li class="mb-2">
+                        <strong>V2EX</strong><br>
+                        <code class="small">https://www.v2ex.com/index.xml</code>
+                    </li>
+                    <li class="mb-2">
+                        <strong>Hostloc</strong><br>
+                        <code class="small">https://hostloc.com/forum.php?mod=rss</code>
+                    </li>
+                    <li class="mb-2">
+                        <strong>1Point3Acres</strong><br>
+                        <code class="small">https://www.1point3acres.com/bbs/forum.php?mod=rss</code>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleSourceFields() {
+    const sourceType = document.getElementById('source_type').value;
+    document.getElementById('rss_field').style.display = sourceType === 'rss' ? 'block' : 'none';
+    document.getElementById('discourse_field').style.display = sourceType === 'discourse' ? 'block' : 'none';
+}
+</script>
+{% endblock %}

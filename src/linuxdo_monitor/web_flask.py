@@ -183,7 +183,81 @@ class ConfigWebServer:
         @app.route('/')
         @require_auth
         def index():
-            return render_template('index.html')
+            config = web_server._load_config()
+            forums = config.get('forums', [])
+            # Legacy format support
+            if not forums and config.get('bot_token'):
+                forums = [{'forum_id': 'linux-do', 'name': 'Linux.do', 'enabled': True}]
+            return render_template('index.html', forums=forums)
+
+        @app.route('/forum/add', methods=['GET', 'POST'])
+        @require_auth
+        def add_forum():
+            if request.method == 'POST':
+                config = web_server._load_config()
+                forums = config.get('forums', [])
+
+                # Get form data
+                forum_id = request.form.get('forum_id', '').strip().lower()
+                name = request.form.get('name', '').strip()
+                bot_token = request.form.get('bot_token', '').strip()
+                source_type = request.form.get('source_type', 'rss')
+                rss_url = request.form.get('rss_url', '').strip()
+                discourse_url = request.form.get('discourse_url', '').strip()
+                fetch_interval = int(request.form.get('fetch_interval', 60))
+
+                # Validate
+                if not forum_id or not name or not bot_token:
+                    flash('论坛ID、名称和Bot Token为必填项', 'danger')
+                    return redirect(url_for('add_forum', pwd=request.args.get('pwd', '')))
+
+                # Check duplicate
+                for f in forums:
+                    if f.get('forum_id') == forum_id:
+                        flash(f'论坛ID "{forum_id}" 已存在', 'danger')
+                        return redirect(url_for('add_forum', pwd=request.args.get('pwd', '')))
+
+                # Create new forum config
+                new_forum = {
+                    'forum_id': forum_id,
+                    'name': name,
+                    'bot_token': bot_token,
+                    'source_type': source_type,
+                    'rss_url': rss_url or f'https://{forum_id}.com/latest.rss',
+                    'discourse_url': discourse_url or f'https://{forum_id}.com',
+                    'discourse_cookie': None,
+                    'flaresolverr_url': None,
+                    'fetch_interval': fetch_interval,
+                    'cookie_check_interval': 0,
+                    'enabled': True
+                }
+
+                forums.append(new_forum)
+                config['forums'] = forums
+                web_server._save_config(config)
+
+                flash(f'论坛 "{name}" 添加成功！重启服务后生效。', 'success')
+                return redirect(url_for('index', pwd=request.args.get('pwd', '')))
+
+            return render_template('add_forum.html')
+
+        @app.route('/forum/delete/<forum_id>', methods=['POST'])
+        @require_auth
+        def delete_forum(forum_id):
+            config = web_server._load_config()
+            forums = config.get('forums', [])
+
+            # Find and remove forum
+            new_forums = [f for f in forums if f.get('forum_id') != forum_id]
+
+            if len(new_forums) == len(forums):
+                flash(f'论坛 "{forum_id}" 不存在', 'danger')
+            else:
+                config['forums'] = new_forums
+                web_server._save_config(config)
+                flash(f'论坛 "{forum_id}" 已删除！重启服务后生效。', 'success')
+
+            return redirect(url_for('index', pwd=request.args.get('pwd', '')))
 
         # Register Linux.do blueprint
         self._setup_linuxdo_routes()
