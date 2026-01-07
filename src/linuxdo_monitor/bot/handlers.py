@@ -27,6 +27,8 @@ def require_registration(func):
     """Decorator to check if user is registered before executing command"""
     @wraps(func)
     async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        if not update.message:
+            return  # Ignore edited messages or other non-message updates
         chat_id = update.effective_chat.id
         if not self.db.user_exists(chat_id, forum=self.forum_id):
             await update.message.reply_text(
@@ -112,6 +114,9 @@ class BotHandlers:
     @require_registration
     async def subscribe(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /subscribe command"""
+        if not update.message:
+            return  # Ignore edited messages or other non-message updates
+
         chat_id = update.effective_chat.id
 
         if not context.args:
