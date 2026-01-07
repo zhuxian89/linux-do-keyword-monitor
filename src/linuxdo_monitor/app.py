@@ -129,10 +129,13 @@ class Application:
         if self.scheduler.running:
             # 更新数据拉取间隔
             if old_config.fetch_interval != new_config.fetch_interval:
-                self.scheduler.reschedule_job(
-                    "data_fetch",
-                    trigger="interval",
+                # reschedule_job 不支持 misfire_grace_time，需要先删除再添加
+                self.scheduler.remove_job("data_fetch")
+                self.scheduler.add_job(
+                    self.fetch_and_notify,
+                    "interval",
                     seconds=new_config.fetch_interval,
+                    id="data_fetch",
                     misfire_grace_time=None,
                     coalesce=True
                 )
@@ -141,25 +144,19 @@ class Application:
             # 更新 Cookie 检测间隔
             if old_config.cookie_check_interval != new_config.cookie_check_interval:
                 if new_config.cookie_check_interval > 0:
-                    # 如果之前禁用了，现在启用
+                    # 先删除旧任务（如果存在）
                     job = self.scheduler.get_job("cookie_check")
                     if job:
-                        self.scheduler.reschedule_job(
-                            "cookie_check",
-                            trigger="interval",
-                            seconds=new_config.cookie_check_interval,
-                            misfire_grace_time=None,
-                            coalesce=True
-                        )
-                    else:
-                        self.scheduler.add_job(
-                            self._check_cookie_task,
-                            "interval",
-                            seconds=new_config.cookie_check_interval,
-                            id="cookie_check",
-                            misfire_grace_time=None,
-                            coalesce=True
-                        )
+                        self.scheduler.remove_job("cookie_check")
+                    # 添加新任务
+                    self.scheduler.add_job(
+                        self._check_cookie_task,
+                        "interval",
+                        seconds=new_config.cookie_check_interval,
+                        id="cookie_check",
+                        misfire_grace_time=None,
+                        coalesce=True
+                    )
                     logger.info(f"🔐 Cookie 检测间隔已更新: {old_config.cookie_check_interval}s → {new_config.cookie_check_interval}s")
                 else:
                     # 禁用 Cookie 检测
