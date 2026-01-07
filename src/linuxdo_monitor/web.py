@@ -33,11 +33,14 @@ def test_cookie(cookie: str, base_url: str = "https://linux.do", flaresolverr_ur
         - error_type: str - "service_error" (FlareSolverr/network issue) or "cookie_invalid" (cookie expired)
     """
     try:
-        # 提取需要的 cookie
+        # 提取需要的 cookie（支持多种分隔格式）
         needed_cookies = {}
-        for item in cookie.split("; "):
+        normalized = cookie.replace("\r\n", ";").replace("\n", ";").replace(";;", ";")
+        for item in normalized.split(";"):
+            item = item.strip()
             if "=" in item:
                 k, v = item.split("=", 1)
+                k = k.strip()
                 if k in ("_t", "_forum_session"):
                     needed_cookies[k] = v
 
@@ -526,9 +529,14 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
             # 自动提取需要的 cookie 字段
             if raw_cookie:
                 needed = {}
-                for item in raw_cookie.split("; "):
+                # 支持多种分隔格式："; " 或 ";" 或换行
+                # 先统一处理：去掉换行，替换成 ;
+                normalized = raw_cookie.replace("\r\n", ";").replace("\n", ";").replace(";;", ";")
+                for item in normalized.split(";"):
+                    item = item.strip()
                     if "=" in item:
                         k, v = item.split("=", 1)
+                        k = k.strip()
                         if k in ("_t", "_forum_session"):
                             needed[k] = v
                 if needed:

@@ -69,12 +69,17 @@ class DiscourseSource(BaseSource):
                 "headers": {"Accept": "application/json"},
             }
             if self.cookie:
-                payload["cookies"] = [
-                    {"name": k, "value": v}
-                    for item in self.cookie.split("; ")
-                    for k, v in [item.split("=", 1)]
-                    if k in ("_t", "_forum_session")
-                ]
+                # 支持多种分隔格式
+                normalized = self.cookie.replace("\r\n", ";").replace("\n", ";").replace(";;", ";")
+                cookies = []
+                for item in normalized.split(";"):
+                    item = item.strip()
+                    if "=" in item:
+                        k, v = item.split("=", 1)
+                        k = k.strip()
+                        if k in ("_t", "_forum_session"):
+                            cookies.append({"name": k, "value": v})
+                payload["cookies"] = cookies
 
             resp = std_requests.post(
                 f"{self.flaresolverr_url}/v1",
