@@ -152,7 +152,7 @@
                     <div class="mb-3">
                         <label class="form-label">Cookie 检测间隔 (秒)</label>
                         <input type="number" class="form-control" name="cookie_check_interval"
-                               value="{{ forum_config.cookie_check_interval or 300 }}" min="0">
+                               value="{{ forum_config.cookie_check_interval if forum_config.cookie_check_interval is not none else 300 }}" min="0">
                         <div class="form-text">独立检测 Cookie 有效性的间隔，0 表示禁用</div>
                     </div>
 
