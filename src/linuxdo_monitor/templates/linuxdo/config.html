@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% set active_page = 'linuxdo' %}
+{% block title %}Linux.do 配置 - Forum Monitor{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{{ url_for('index') }}?pwd={{ password }}">首页</a></li>
+                <li class="breadcrumb-item active">Linux.do 配置</li>
+            </ol>
+        </nav>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-gear"></i> 配置管理
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>热更新说明:</strong> 大部分配置保存后立即生效，无需重启服务。
+                    标有 <span class="badge bg-danger badge-restart">需重启</span> 的配置修改后需要重启服务。
+                </div>
+
+                <form method="POST" action="{{ url_for('linuxdo.save_config') }}?pwd={{ password }}">
+                    <!-- Bot Token -->
+                    <div class="mb-3">
+                        <label class="form-label">
+                            Bot Token
+                            <span class="badge bg-danger badge-restart">需重启</span>
+                        </label>
+                        <input type="text" class="form-control" name="bot_token"
+                               value="{{ config.bot_token or '' }}" placeholder="Telegram Bot Token">
+                        <div class="form-text">从 @BotFather 获取的 Bot Token</div>
+                    </div>
+
+                    <!-- 数据源类型 -->
+                    <div class="mb-3">
+                        <label class="form-label">数据源类型</label>
+                        <select class="form-select" name="source_type">
+                            <option value="rss" {% if config.source_type == 'rss' %}selected{% endif %}>
+                                RSS (公开内容)
+                            </option>
+                            <option value="discourse" {% if config.source_type == 'discourse' %}selected{% endif %}>
+                                Discourse API (需要Cookie)
+                            </option>
+                        </select>
+                    </div>
+
+                    <!-- RSS URL -->
+                    <div class="mb-3">
+                        <label class="form-label">
+                            RSS URL
+                            <span class="badge bg-danger badge-restart">需重启</span>
+                        </label>
+                        <input type="text" class="form-control" name="rss_url"
+                               value="{{ config.rss_url or 'https://linux.do/latest.rss' }}"
+                               placeholder="https://linux.do/latest.rss">
+                        <div class="form-text">RSS 数据源的 URL</div>
+                    </div>
+
+                    <!-- Discourse URL -->
+                    <div class="mb-3">
+                        <label class="form-label">Discourse URL</label>
+                        <input type="text" class="form-control" name="discourse_url"
+                               value="{{ config.discourse_url or 'https://linux.do' }}"
+                               placeholder="https://linux.do">
+                        <div class="form-text">Discourse 论坛的基础 URL</div>
+                    </div>
+
+                    <!-- Discourse Cookie -->
+                    <div class="mb-3">
+                        <label class="form-label">Discourse Cookie</label>
+                        <textarea class="form-control" name="discourse_cookie" rows="4"
+                                  id="cookie-input" placeholder="粘贴完整的 Cookie 值...">{{ config.discourse_cookie or '' }}</textarea>
+                        <div class="form-text">
+                            直接粘贴浏览器完整 Cookie（支持换行格式），系统会自动提取 _t 和 _forum_session 字段
+                        </div>
+                        <button type="button" class="btn btn-success btn-sm mt-2" onclick="testCookie()">
+                            <i class="bi bi-check-circle"></i> 测试 Cookie 有效性
+                        </button>
+                        <div id="test-result" class="mt-2" style="display: none;"></div>
+                    </div>
+
+                    <!-- 拉取间隔 -->
+                    <div class="mb-3">
+                        <label class="form-label">拉取间隔 (秒)</label>
+                        <input type="number" class="form-control" name="fetch_interval"
+                               value="{{ config.fetch_interval or 60 }}" min="10">
+                        <div class="form-text">数据拉取的时间间隔</div>
+                    </div>
+
+                    <!-- FlareSolverr URL -->
+                    <div class="mb-3">
+                        <label class="form-label">FlareSolverr URL</label>
+                        <input type="text" class="form-control" name="flaresolverr_url"
+                               value="{{ config.flaresolverr_url or '' }}"
+                               placeholder="http://localhost:8191">
+                        <div class="form-text">
+                            可选，用于绕过 Cloudflare。
+                            启动命令: <code>docker run -d -p 127.0.0.1:8191:8191 ghcr.io/flaresolverr/flaresolverr</code>
+                        </div>
+                    </div>
+
+                    <!-- Cookie 检测间隔 -->
+                    <div class="mb-3">
+                        <label class="form-label">Cookie 检测间隔 (秒)</label>
+                        <input type="number" class="form-control" name="cookie_check_interval"
+                               value="{{ config.cookie_check_interval or 300 }}" min="0">
+                        <div class="form-text">独立检测 Cookie 有效性的间隔，0 表示禁用</div>
+                    </div>
+
+                    <!-- 管理员 Chat ID -->
+                    <div class="mb-3">
+                        <label class="form-label">管理员 Chat ID</label>
+                        <input type="number" class="form-control" name="admin_chat_id"
+                               value="{{ config.admin_chat_id or '' }}"
+                               placeholder="可选，用于接收系统告警">
+                        <div class="form-text">
+                            Cookie 失效或拉取失败时会发送告警到此 ID。可通过 @userinfobot 获取你的 Chat ID
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-save"></i> 保存并应用
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <!-- 当前状态卡片 -->
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-info-circle"></i> 当前状态
+            </div>
+            <div class="card-body">
+                <p><strong>数据源:</strong> {{ config.source_type or 'rss' }}</p>
+                <p><strong>Cookie:</strong>
+                    {% if config.discourse_cookie %}
+                        <span class="text-success"><i class="bi bi-check-circle"></i> 已配置</span>
+                    {% else %}
+                        <span class="text-muted"><i class="bi bi-x-circle"></i> 未配置</span>
+                    {% endif %}
+                </p>
+                <p><strong>拉取间隔:</strong> {{ config.fetch_interval or 60 }} 秒</p>
+                <hr>
+                <a href="{{ url_for('linuxdo.users_page') }}?pwd={{ password }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-people"></i> 查看用户统计
+                </a>
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearCache()">
+                    <i class="bi bi-arrow-clockwise"></i> 刷新缓存
+                </button>
+                <div id="cache-result" class="mt-2" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function testCookie() {
+    const resultDiv = document.getElementById('test-result');
+    const cookieInput = document.getElementById('cookie-input');
+    const cookie = cookieInput.value.trim();
+
+    resultDiv.style.display = 'block';
+
+    if (!cookie) {
+        resultDiv.className = 'alert alert-danger';
+        resultDiv.innerHTML = '<i class="bi bi-x-circle"></i> 请先输入 Cookie';
+        return;
+    }
+
+    resultDiv.className = 'alert alert-warning';
+    resultDiv.innerHTML = '<i class="bi bi-hourglass-split"></i> 正在测试...';
+
+    try {
+        const response = await fetch('{{ url_for("linuxdo.test_cookie") }}?pwd={{ password }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'cookie=' + encodeURIComponent(cookie)
+        });
+
+        const data = await response.json();
+
+        if (data.valid) {
+            resultDiv.className = 'alert alert-success';
+            resultDiv.innerHTML = '<i class="bi bi-check-circle"></i> ' + (data.message || 'Cookie 有效！');
+        } else {
+            resultDiv.className = 'alert alert-danger';
+            resultDiv.innerHTML = '<i class="bi bi-x-circle"></i> ' + (data.error || '未知错误');
+        }
+    } catch (e) {
+        resultDiv.className = 'alert alert-danger';
+        resultDiv.innerHTML = '<i class="bi bi-x-circle"></i> 测试失败: ' + e.message;
+    }
+}
+
+async function clearCache() {
+    const resultDiv = document.getElementById('cache-result');
+    resultDiv.style.display = 'block';
+    resultDiv.className = 'alert alert-warning';
+    resultDiv.innerHTML = '<i class="bi bi-hourglass-split"></i> 正在清除...';
+
+    try {
+        const response = await fetch('{{ url_for("linuxdo.clear_cache") }}?pwd={{ password }}');
+        const data = await response.json();
+
+        if (data.success) {
+            resultDiv.className = 'alert alert-success';
+            resultDiv.innerHTML = '<i class="bi bi-check-circle"></i> ' + data.message;
+        } else {
+            resultDiv.className = 'alert alert-danger';
+            resultDiv.innerHTML = '<i class="bi bi-x-circle"></i> ' + data.error;
+        }
+    } catch (e) {
+        resultDiv.className = 'alert alert-danger';
+        resultDiv.innerHTML = '<i class="bi bi-x-circle"></i> 清除失败: ' + e.message;
+    }
+
+    setTimeout(() => { resultDiv.style.display = 'none'; }, 3000);
+}
+</script>
+{% endblock %}

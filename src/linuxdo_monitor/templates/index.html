@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}首页 - Forum Monitor{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h2><i class="bi bi-house"></i> 控制面板</h2>
+        <p class="text-muted">选择要管理的论坛</p>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-chat-dots"></i> Linux.do</h5>
+                <p class="card-text">Linux.do 论坛关键词监控</p>
+                <a href="{{ url_for('linuxdo.config_page') }}?pwd={{ password }}" class="btn btn-primary">
+                    <i class="bi bi-gear"></i> 管理配置
+                </a>
+                <a href="{{ url_for('linuxdo.users_page') }}?pwd={{ password }}" class="btn btn-outline-secondary">
+                    <i class="bi bi-people"></i> 用户统计
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- 未来可以添加更多论坛卡片 -->
+    <div class="col-md-4">
+        <div class="card bg-light">
+            <div class="card-body text-center text-muted">
+                <h5 class="card-title"><i class="bi bi-plus-circle"></i> 更多论坛</h5>
+                <p class="card-text">即将支持...</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

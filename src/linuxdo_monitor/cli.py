@@ -213,7 +213,7 @@ def run(config_dir, web_port, web_password):
 
     # Start web server if port specified
     if web_port:
-        from .web import ConfigWebServer
+        from .web_flask import ConfigWebServer
         web_server = ConfigWebServer(
             config_path=config_manager.config_path,
             port=web_port,

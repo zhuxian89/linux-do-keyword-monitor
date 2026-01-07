@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% set active_page = 'linuxdo' %}
+{% block title %}用户统计 - Linux.do - Forum Monitor{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{{ url_for('index') }}?pwd={{ password }}">首页</a></li>
+                <li class="breadcrumb-item"><a href="{{ url_for('linuxdo.config_page') }}?pwd={{ password }}">Linux.do</a></li>
+                <li class="breadcrumb-item active">用户统计</li>
+            </ol>
+        </nav>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <h2><i class="bi bi-bar-chart"></i> 用户统计</h2>
+    </div>
+</div>
+
+<!-- 统计卡片 -->
+<div class="row mt-4">
+    <div class="col-md-2 col-6">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="display-4">{{ stats.user_count }}</div>
+                <div class="text-muted">总用户数</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 col-6">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="display-4">{{ stats.subscribe_all_count }}</div>
+                <div class="text-muted">订阅全部</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 col-6">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="display-4">{{ stats.keyword_count }}</div>
+                <div class="text-muted">关键词数</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 col-6">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="display-4">{{ stats.subscription_count }}</div>
+                <div class="text-muted">总订阅数</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 col-6">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="display-4">{{ stats.post_count }}</div>
+                <div class="text-muted">已处理帖子</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 col-6">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="display-4">{{ stats.notification_count }}</div>
+                <div class="text-muted">已发送通知</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 用户列表 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-people"></i> 用户列表
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Chat ID</th>
+                                <th>注册时间</th>
+                                <th>订阅数</th>
+                                <th>关键词</th>
+                                <th>收到通知</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if users %}
+                                {% for user in users %}
+                                <tr>
+                                    <td><code>{{ user.chat_id }}</code></td>
+                                    <td>{{ user.created_at[:10] }}</td>
+                                    <td>
+                                        {{ user.keyword_count }}
+                                        {% if user.is_subscribe_all %}
+                                            <span class="badge bg-success">全部</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span title="{{ user.keywords }}">
+                                            {{ user.keywords[:50] }}{% if user.keywords|length > 50 %}...{% endif %}
+                                        </span>
+                                        {% if not user.keywords %}-{% endif %}
+                                    </td>
+                                    <td>{{ user.notification_count }}</td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="5" class="text-center text-muted">暂无用户</td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 分页 -->
+                {% if total_pages > 1 %}
+                <nav aria-label="Page navigation">
+                    <ul class="pagination justify-content-center">
+                        <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+                            <a class="page-link" href="{{ url_for('linuxdo.users_page') }}?pwd={{ password }}&page={{ page - 1 }}">
+                                上一页
+                            </a>
+                        </li>
+                        <li class="page-item disabled">
+                            <span class="page-link">第 {{ page }} / {{ total_pages }} 页 (共 {{ total }} 条)</span>
+                        </li>
+                        <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+                            <a class="page-link" href="{{ url_for('linuxdo.users_page') }}?pwd={{ password }}&page={{ page + 1 }}">
+                                下一页
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
