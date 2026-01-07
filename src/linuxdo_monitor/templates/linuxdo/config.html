@@ -166,6 +166,9 @@
 
 {% block extra_js %}
 <script>
+const TEST_COOKIE_URL = '{{ url_for("linuxdo.test_cookie") }}?pwd={{ password }}';
+const CLEAR_CACHE_URL = '{{ url_for("linuxdo.clear_cache") }}?pwd={{ password }}';
+
 async function testCookie() {
     const resultDiv = document.getElementById('test-result');
     const cookieInput = document.getElementById('cookie-input');
@@ -183,7 +186,7 @@ async function testCookie() {
     resultDiv.innerHTML = '<i class="bi bi-hourglass-split"></i> 正在测试...';
 
     try {
-        const response = await fetch('{{ url_for("linuxdo.test_cookie") }}?pwd={{ password }}', {
+        const response = await fetch(TEST_COOKIE_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: 'cookie=' + encodeURIComponent(cookie)
@@ -211,7 +214,7 @@ async function clearCache() {
     resultDiv.innerHTML = '<i class="bi bi-hourglass-split"></i> 正在清除...';
 
     try {
-        const response = await fetch('{{ url_for("linuxdo.clear_cache") }}?pwd={{ password }}');
+        const response = await fetch(CLEAR_CACHE_URL);
         const data = await response.json();
 
         if (data.success) {
