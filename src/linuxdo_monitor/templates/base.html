@@ -32,7 +32,13 @@
                     <li class="nav-item">
                         <a class="nav-link {% if active_page == 'linuxdo' %}active{% endif %}"
                            href="{{ url_for('linuxdo.config_page') }}?pwd={{ password }}">
-                            <i class="bi bi-gear"></i> Linux.do
+                            <i class="bi bi-gear"></i> 配置
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if active_page == 'sql' %}active{% endif %}"
+                           href="{{ url_for('linuxdo.sql_page') }}?pwd={{ password }}">
+                            <i class="bi bi-database"></i> SQL 查询
                         </a>
                     </li>
                 </ul>

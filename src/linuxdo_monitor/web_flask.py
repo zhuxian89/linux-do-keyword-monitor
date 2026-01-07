@@ -477,6 +477,62 @@ class ConfigWebServer:
                                  forum_id=forum_id,
                                  forums=forums)
 
+        @linuxdo_bp.route('/sql')
+        @require_auth
+        def sql_page():
+            """SQL query page"""
+            if not web_server.db_path or not web_server.db_path.exists():
+                flash('数据库未配置或不存在', 'danger')
+                return redirect(url_for('linuxdo.config_page', pwd=request.args.get('pwd', '')))
+
+            return render_template('linuxdo/sql.html')
+
+        @linuxdo_bp.route('/sql/execute', methods=['POST'])
+        @require_auth
+        def sql_execute():
+            """Execute SQL query"""
+            if not web_server.db_path or not web_server.db_path.exists():
+                return jsonify({"success": False, "error": "数据库不存在"})
+
+            sql = request.form.get('sql', '').strip()
+            if not sql:
+                return jsonify({"success": False, "error": "SQL 语句不能为空"})
+
+            # Security: Only allow SELECT statements
+            sql_upper = sql.upper().strip()
+            if not sql_upper.startswith('SELECT'):
+                return jsonify({"success": False, "error": "安全限制：只允许 SELECT 查询语句"})
+
+            # Block dangerous keywords
+            dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE', 'EXEC', 'EXECUTE']
+            for keyword in dangerous_keywords:
+                if keyword in sql_upper:
+                    return jsonify({"success": False, "error": f"安全限制：不允许使用 {keyword}"})
+
+            try:
+                import sqlite3
+                conn = sqlite3.connect(web_server.db_path)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute(sql)
+                rows = cursor.fetchall()
+
+                # Convert to list of dicts
+                columns = [description[0] for description in cursor.description] if cursor.description else []
+                data = [dict(row) for row in rows]
+
+                conn.close()
+
+                return jsonify({
+                    "success": True,
+                    "columns": columns,
+                    "data": data,
+                    "row_count": len(data)
+                })
+            except sqlite3.Error as e:
+                return jsonify({"success": False, "error": f"SQL 错误: {str(e)}"})
+            except Exception as e:
+                return jsonify({"success": False, "error": f"执行错误: {str(e)}"})
+
     def start(self):
         """Start web server in background thread"""
         def run():
