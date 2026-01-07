@@ -81,8 +81,10 @@ class Database:
                 );
 
                 CREATE TABLE IF NOT EXISTS blocked_users (
-                    chat_id INTEGER PRIMARY KEY,
-                    blocked_at TEXT NOT NULL
+                    chat_id INTEGER NOT NULL,
+                    forum TEXT NOT NULL DEFAULT 'linux-do',
+                    blocked_at TEXT NOT NULL,
+                    PRIMARY KEY (chat_id, forum)
                 );
 
                 CREATE TABLE IF NOT EXISTS schema_version (
@@ -415,7 +417,9 @@ class Database:
             keyword_count = conn.execute(
                 "SELECT COUNT(DISTINCT keyword) FROM subscriptions WHERE forum = ?", (forum,)
             ).fetchone()[0]
-            blocked_count = conn.execute("SELECT COUNT(*) FROM blocked_users").fetchone()[0]
+            blocked_count = conn.execute(
+                "SELECT COUNT(*) FROM blocked_users WHERE forum = ?", (forum,)
+            ).fetchone()[0]
         return {
             "user_count": user_count,
             "subscription_count": subscription_count,
@@ -426,38 +430,40 @@ class Database:
             "blocked_count": blocked_count,
         }
 
-    # Blocked users operations (global, not per-forum)
-    def mark_user_blocked(self, chat_id: int) -> bool:
+    # Blocked users operations
+    def mark_user_blocked(self, chat_id: int, forum: str = DEFAULT_FORUM) -> bool:
         """Mark a user as having blocked the bot"""
         now = datetime.now().isoformat()
         with self._get_conn() as conn:
             try:
                 conn.execute(
-                    "INSERT OR REPLACE INTO blocked_users (chat_id, blocked_at) VALUES (?, ?)",
-                    (chat_id, now)
+                    "INSERT OR REPLACE INTO blocked_users (chat_id, forum, blocked_at) VALUES (?, ?, ?)",
+                    (chat_id, forum, now)
                 )
                 return True
             except sqlite3.IntegrityError:
                 return False
 
-    def unmark_user_blocked(self, chat_id: int) -> bool:
+    def unmark_user_blocked(self, chat_id: int, forum: str = DEFAULT_FORUM) -> bool:
         """Remove user from blocked list"""
         with self._get_conn() as conn:
             cursor = conn.execute(
-                "DELETE FROM blocked_users WHERE chat_id = ?", (chat_id,)
+                "DELETE FROM blocked_users WHERE chat_id = ? AND forum = ?", (chat_id, forum)
             )
         return cursor.rowcount > 0
 
-    def is_user_blocked(self, chat_id: int) -> bool:
+    def is_user_blocked(self, chat_id: int, forum: str = DEFAULT_FORUM) -> bool:
         """Check if user has blocked the bot"""
         with self._get_conn() as conn:
             row = conn.execute(
-                "SELECT 1 FROM blocked_users WHERE chat_id = ?", (chat_id,)
+                "SELECT 1 FROM blocked_users WHERE chat_id = ? AND forum = ?", (chat_id, forum)
             ).fetchone()
         return row is not None
 
-    def get_blocked_user_count(self) -> int:
+    def get_blocked_user_count(self, forum: str = DEFAULT_FORUM) -> int:
         """Get count of users who blocked the bot"""
         with self._get_conn() as conn:
-            row = conn.execute("SELECT COUNT(*) FROM blocked_users").fetchone()
+            row = conn.execute(
+                "SELECT COUNT(*) FROM blocked_users WHERE forum = ?", (forum,)
+            ).fetchone()
         return row[0]

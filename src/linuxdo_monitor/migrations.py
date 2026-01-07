@@ -90,6 +90,13 @@ MIGRATIONS = {
         "CREATE INDEX IF NOT EXISTS idx_notifications_chat_post ON notifications(chat_id, post_id)",
         "CREATE INDEX IF NOT EXISTS idx_notifications_post_id ON notifications(post_id)",
         "CREATE INDEX IF NOT EXISTS idx_notifications_forum ON notifications(forum)",
+
+        # 7. 重建 blocked_users 表（添加 forum 字段）
+        "CREATE TABLE blocked_users_new (chat_id INTEGER NOT NULL, forum TEXT NOT NULL DEFAULT 'linux-do', blocked_at TEXT NOT NULL, PRIMARY KEY (chat_id, forum))",
+        "INSERT OR IGNORE INTO blocked_users_new (chat_id, forum, blocked_at) SELECT chat_id, 'linux-do', blocked_at FROM blocked_users",
+        "DROP TABLE blocked_users",
+        "ALTER TABLE blocked_users_new RENAME TO blocked_users",
+        "CREATE INDEX IF NOT EXISTS idx_blocked_users_forum ON blocked_users(forum)",
     ],
 }
 

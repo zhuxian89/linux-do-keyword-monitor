@@ -53,7 +53,7 @@ class BotHandlers:
         self.db.add_user(chat_id, forum=self.forum_id)
         logger.info(f"[{self.forum_id}] 用户已添加到数据库: chat_id={chat_id}, forum={self.forum_id}")
         # 用户回来了，清除封禁标记
-        self.db.unmark_user_blocked(chat_id)
+        self.db.unmark_user_blocked(chat_id, forum=self.forum_id)
         # Clear cache on user registration for safety
         self.cache.invalidate_keywords()
         self.cache.invalidate_subscribe_all()

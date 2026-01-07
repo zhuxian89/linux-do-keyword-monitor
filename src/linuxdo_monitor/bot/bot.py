@@ -97,7 +97,7 @@ class TelegramBot:
             except Forbidden:
                 # 用户封禁了 Bot，不需要重试
                 logger.debug(f"用户 {chat_id} 已封禁 Bot")
-                self.db.mark_user_blocked(chat_id)
+                self.db.mark_user_blocked(chat_id, forum=self.forum_id)
                 return False
             except (TimedOut, NetworkError) as e:
                 # 网络问题，重试
