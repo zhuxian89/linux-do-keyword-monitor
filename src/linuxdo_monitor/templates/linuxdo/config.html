@@ -166,7 +166,7 @@
 
 {% block extra_js %}
 <script>
-const TEST_COOKIE_URL = '{{ url_for("linuxdo.test_cookie") }}?pwd={{ password }}';
+const TEST_COOKIE_URL = '{{ url_for("linuxdo.test_cookie_route") }}?pwd={{ password }}';
 const CLEAR_CACHE_URL = '{{ url_for("linuxdo.clear_cache") }}?pwd={{ password }}';
 
 async function testCookie() {
