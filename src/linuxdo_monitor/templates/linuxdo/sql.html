@@ -48,6 +48,9 @@
                         <button type="button" class="btn btn-outline-secondary" onclick="setQuery('SELECT * FROM posts ORDER BY pub_date DESC LIMIT 50')">
                             最新帖子
                         </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="setQuery('SELECT * FROM notifications ORDER BY created_at DESC LIMIT 50')">
+                            发送记录
+                        </button>
                         <button type="button" class="btn btn-outline-secondary" onclick="setQuery('SELECT forum, COUNT(*) as count FROM users GROUP BY forum')">
                             用户统计
                         </button>
