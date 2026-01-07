@@ -238,17 +238,35 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
     </div>
 
     <div class="hint">
-        <strong>热更新说明:</strong> 以下配置保存后立即生效，无需重启服务：数据源类型、Cookie、拉取间隔、FlareSolverr URL、Cookie 检测间隔、管理员 Chat ID。<br>
-        <strong>注意:</strong> Bot Token 修改后需要重启服务才能生效。
+        <strong>热更新说明:</strong> 大部分配置保存后立即生效，无需重启服务。<br>
+        <strong>注意:</strong> Bot Token 和 RSS URL 修改后需要重启服务才能生效。
     </div>
 
     <form method="POST" action="?pwd={self.password}">
+        <div class="field">
+            <label>Bot Token <span style="color: #dc3545; font-size: 12px;">(修改需重启)</span></label>
+            <input type="text" name="bot_token" value="{config.get('bot_token', '')}" placeholder="Telegram Bot Token">
+            <small>从 @BotFather 获取的 Bot Token</small>
+        </div>
+
         <div class="field">
             <label>数据源类型</label>
             <select name="source_type">
                 <option value="rss" {"selected" if config.get("source_type") == "rss" else ""}>RSS (公开内容)</option>
                 <option value="discourse" {"selected" if config.get("source_type") == "discourse" else ""}>Discourse API (需要Cookie)</option>
             </select>
+        </div>
+
+        <div class="field">
+            <label>RSS URL <span style="color: #dc3545; font-size: 12px;">(修改需重启)</span></label>
+            <input type="text" name="rss_url" value="{config.get('rss_url', 'https://linux.do/latest.rss')}" placeholder="https://linux.do/latest.rss">
+            <small>RSS 数据源的 URL</small>
+        </div>
+
+        <div class="field">
+            <label>Discourse URL</label>
+            <input type="text" name="discourse_url" value="{config.get('discourse_url', 'https://linux.do')}" placeholder="https://linux.do">
+            <small>Discourse 论坛的基础 URL</small>
         </div>
 
         <div class="field">
@@ -268,7 +286,7 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         <div class="field">
             <label>FlareSolverr URL</label>
             <input type="text" name="flaresolverr_url" value="{config.get('flaresolverr_url', '') or ''}" placeholder="http://localhost:8191">
-            <small>可选，用于绕过 Cloudflare。启动命令: docker run -d -p 8191:8191 ghcr.io/flaresolverr/flaresolverr</small>
+            <small>可选，用于绕过 Cloudflare。启动命令: docker run -d -p 127.0.0.1:8191:8191 ghcr.io/flaresolverr/flaresolverr</small>
         </div>
 
         <div class="field">
@@ -280,7 +298,7 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         <div class="field">
             <label>管理员 Chat ID</label>
             <input type="number" name="admin_chat_id" value="{config.get('admin_chat_id', '') or ''}" placeholder="可选，用于接收系统告警">
-            <small>Cookie 失效时会发送告警到此 ID。可通过 @userinfobot 获取你的 Chat ID</small>
+            <small>Cookie 失效或拉取失败时会发送告警到此 ID。可通过 @userinfobot 获取你的 Chat ID</small>
         </div>
 
         <button type="submit">保存并应用</button>
@@ -528,8 +546,20 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         config = self._load_config()
 
         # Update config
+        if "bot_token" in params:
+            token = params["bot_token"][0].strip()
+            if token:
+                config["bot_token"] = token
         if "source_type" in params:
             config["source_type"] = params["source_type"][0]
+        if "rss_url" in params:
+            rss_url = params["rss_url"][0].strip()
+            if rss_url:
+                config["rss_url"] = rss_url
+        if "discourse_url" in params:
+            discourse_url = params["discourse_url"][0].strip()
+            if discourse_url:
+                config["discourse_url"] = discourse_url
         if "discourse_cookie" in params:
             raw_cookie = params["discourse_cookie"][0]
             # 自动提取需要的 cookie 字段
