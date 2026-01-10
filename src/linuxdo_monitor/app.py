@@ -263,8 +263,10 @@ class Application:
         # 连续测试 3 次
         fail_count = 0
         last_result = None
+        loop = asyncio.get_event_loop()
         for i in range(3):
-            result = self._check_cookie_valid()
+            # 在线程池中执行同步的 cookie 检测，避免阻塞事件循环
+            result = await loop.run_in_executor(None, self._check_cookie_valid)
             last_result = result
             if not result.get("valid", False):
                 fail_count += 1
@@ -404,7 +406,9 @@ class Application:
         try:
             # Always use the configured source (no fallback to RSS)
             logger.info(f"[{self.forum_id}] 📡 开始拉取数据 ({self.source.get_source_name()})...")
-            posts = self.source.fetch()
+            # 在线程池中执行同步的 fetch，避免阻塞事件循环
+            loop = asyncio.get_event_loop()
+            posts = await loop.run_in_executor(None, self.source.fetch)
 
             # Use cached data
             keywords = self._get_keywords_cached()
