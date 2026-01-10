@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import time
+import uuid
 from datetime import datetime
 from typing import List, Optional
 
@@ -33,6 +34,11 @@ class DiscourseSource(BaseSource):
         "Chrome/131.0.0.0 Safari/537.36"
     )
 
+    # 类级别的 session ID，所有实例共享
+    _flaresolverr_session_id: Optional[str] = None
+    _session_created_at: float = 0
+    _session_max_age: int = 1800  # session 最长存活 30 分钟
+
     def __init__(
         self,
         base_url: str,
@@ -60,13 +66,68 @@ class DiscourseSource(BaseSource):
             return self._fetch_via_flaresolverr(url)
         return self._fetch_direct(url)
 
+    def _get_or_create_session(self) -> Optional[str]:
+        """获取或创建 FlareSolverr session"""
+        now = time.time()
+
+        # 检查现有 session 是否过期
+        if (DiscourseSource._flaresolverr_session_id and
+            now - DiscourseSource._session_created_at < DiscourseSource._session_max_age):
+            return DiscourseSource._flaresolverr_session_id
+
+        # 创建新 session
+        session_id = f"linuxdo_{uuid.uuid4().hex[:8]}"
+        try:
+            resp = std_requests.post(
+                f"{self.flaresolverr_url}/v1",
+                json={"cmd": "sessions.create", "session": session_id},
+                timeout=30
+            )
+            if resp.status_code == 200:
+                result = resp.json()
+                if result.get("status") == "ok":
+                    DiscourseSource._flaresolverr_session_id = session_id
+                    DiscourseSource._session_created_at = now
+                    logger.info(f"FlareSolverr session 创建成功: {session_id}")
+                    return session_id
+        except Exception as e:
+            logger.warning(f"创建 FlareSolverr session 失败: {e}")
+
+        return None
+
+    def _destroy_session(self):
+        """销毁当前 session"""
+        if not DiscourseSource._flaresolverr_session_id:
+            return
+
+        try:
+            std_requests.post(
+                f"{self.flaresolverr_url}/v1",
+                json={"cmd": "sessions.destroy", "session": DiscourseSource._flaresolverr_session_id},
+                timeout=10
+            )
+            logger.info(f"FlareSolverr session 已销毁: {DiscourseSource._flaresolverr_session_id}")
+        except Exception:
+            pass
+
+        DiscourseSource._flaresolverr_session_id = None
+        DiscourseSource._session_created_at = 0
+
     def _fetch_via_flaresolverr(self, url: str, max_retries: int = 3) -> List[Post]:
-        """通过 FlareSolverr 获取数据，支持重试"""
+        """通过 FlareSolverr 获取数据，使用 session 模式"""
+        # 获取或创建 session
+        session_id = self._get_or_create_session()
+
         payload = {
             "cmd": "request.get",
             "url": url,
-            "maxTimeout": 60000,  # 60 秒，CF 挑战可能需要更长时间
+            "maxTimeout": 90000,  # 90 秒
         }
+
+        # 使用 session
+        if session_id:
+            payload["session"] = session_id
+
         if self.cookie:
             # 支持多种分隔格式
             normalized = self.cookie.replace("\r\n", ";").replace("\n", ";").replace(";;", ";")
@@ -86,13 +147,17 @@ class DiscourseSource(BaseSource):
                 resp = std_requests.post(
                     f"{self.flaresolverr_url}/v1",
                     json=payload,
-                    timeout=90  # 比 maxTimeout 多留一些余量
+                    timeout=120  # 比 maxTimeout 多留一些余量
                 )
                 resp.raise_for_status()
                 result = resp.json()
 
                 if result.get("status") != "ok":
-                    raise Exception(f"FlareSolverr error: {result.get('message')}")
+                    error_msg = result.get('message', 'Unknown error')
+                    # 如果是 session 相关错误，销毁并重试
+                    if "session" in error_msg.lower():
+                        self._destroy_session()
+                    raise Exception(f"FlareSolverr error: {error_msg}")
 
                 response_text = extract_json_from_html(result["solution"]["response"])
                 data = json.loads(response_text)
@@ -100,11 +165,25 @@ class DiscourseSource(BaseSource):
             except Exception as e:
                 last_error = e
                 logger.warning(f"FlareSolverr 请求失败 (尝试 {attempt}/{max_retries}): {e}")
-                if attempt < max_retries:
-                    time.sleep(5)  # 等待 5 秒后重试
 
-        logger.error(f"FlareSolverr 请求失败，已重试 {max_retries} 次: {last_error}")
-        raise last_error
+                # 第一次失败后销毁 session，下次重试会创建新的
+                if attempt == 1 and session_id:
+                    self._destroy_session()
+                    session_id = self._get_or_create_session()
+                    if session_id:
+                        payload["session"] = session_id
+
+                if attempt < max_retries:
+                    time.sleep(3)
+
+        # FlareSolverr 失败，尝试 curl_cffi 直接请求
+        logger.warning(f"FlareSolverr 失败，尝试 curl_cffi 直接请求...")
+        try:
+            return self._fetch_direct(url)
+        except Exception as e:
+            logger.error(f"curl_cffi 也失败了: {e}")
+            # 返回 FlareSolverr 的错误
+            raise last_error
 
     def _fetch_direct(self, url: str) -> List[Post]:
         """直接请求（需要有效的 cf_clearance）"""
