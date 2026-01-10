@@ -3,6 +3,7 @@ from functools import wraps
 from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
+from telegram.error import BadRequest
 
 from ..cache import AppCache
 from ..database import Database
@@ -18,7 +19,7 @@ MAX_AUTHORS_PER_USER = 5
 MAX_KEYWORD_LENGTH = 50
 
 # 推荐关键词（用于快捷订阅）
-RECOMMENDED_KEYWORDS = ["claude", "ai", "kiro", "gemini", "公益"]
+RECOMMENDED_KEYWORDS = ["claude", "红包", "kiro", "gemini", "公益"]
 # 推荐用户（用于快捷订阅）
 RECOMMENDED_USERS = ["zhuxian123", "jason_wong1", "bytebender", "henryxiaoyang"]
 
@@ -71,9 +72,9 @@ class BotHandlers:
         await update.message.reply_text(
             f"👋 欢迎使用 {self.forum_name} 关键词监控机器人！\n\n"
             "📝 使用方法：\n"
-            "/subscribe <关键词> - 订阅关键词\n"
+            "/subscribe 关键词 - 订阅关键词\n"
             "/list - 查看我的关键词订阅\n"
-            "/subscribe_user <用户名> - 订阅用户\n"
+            "/subscribe_user 用户名 - 订阅用户\n"
             "/list_users - 查看已订阅的用户\n"
             "/subscribe_all - 订阅所有新帖子\n"
             "/unsubscribe_all - 取消订阅所有\n"
@@ -91,7 +92,7 @@ class BotHandlers:
             f"本机器人监控 {self.forum_name} 论坛的最新帖子，"
             "当帖子标题包含您订阅的关键词时，会发送通知给您。\n\n"
             "📝 关键词订阅：\n"
-            "/subscribe <关键词> - 订阅关键词（不区分大小写）\n"
+            "/subscribe 关键词 - 订阅关键词（不区分大小写）\n"
             "/list - 查看我的关键词订阅\n\n"
             "🔤 正则表达式：\n"
             "支持正则匹配，例如：\n"
@@ -100,7 +101,7 @@ class BotHandlers:
             "• (免费|白嫖) - 匹配 免费 或 白嫖\n"
             "💡 可用 AI 工具帮你生成正则\n\n"
             "👤 用户订阅：\n"
-            "/subscribe_user <用户名> - 订阅某用户的所有帖子\n"
+            "/subscribe_user 用户名 - 订阅某用户的所有帖子\n"
             "/list_users - 查看已订阅的用户\n\n"
             "🌟 全部订阅：\n"
             "/subscribe_all - 订阅所有新帖子\n"
@@ -415,15 +416,27 @@ class BotHandlers:
         """Handle inline keyboard button callbacks"""
         query = update.callback_query
 
+        # 辅助函数：安全地回复 callback query
+        async def safe_answer(text: str = None, show_alert: bool = False) -> bool:
+            """安全地回复 callback query，忽略过期错误"""
+            try:
+                await query.answer(text, show_alert=show_alert)
+                return True
+            except BadRequest as e:
+                if "Query is too old" in str(e) or "query id is invalid" in str(e):
+                    logger.debug(f"Callback query 已过期，忽略: {e}")
+                    return False
+                raise
+
         if query.data == "noop":
-            await query.answer()
+            await safe_answer()
             return
 
         chat_id = query.message.chat_id
 
         # 删除关键词确认
         if query.data.startswith("del_kw:"):
-            await query.answer()
+            await safe_answer()
             keyword = query.data[7:]
             keyboard = InlineKeyboardMarkup([
                 [
@@ -435,7 +448,7 @@ class BotHandlers:
             await query.edit_message_text(f"确认删除关键词「{display}」？", reply_markup=keyboard)
 
         elif query.data.startswith("confirm_kw:"):
-            await query.answer()
+            await safe_answer()
             keyword = query.data[11:]
             if self.db.remove_subscription(chat_id, keyword, forum=self.forum_id):
                 self.cache.invalidate_keywords()
@@ -444,13 +457,13 @@ class BotHandlers:
             await query.edit_message_text(text, reply_markup=keyboard)
 
         elif query.data == "cancel_kw":
-            await query.answer()
+            await safe_answer()
             text, keyboard = self._build_keyword_list_message(chat_id)
             await query.edit_message_text(text, reply_markup=keyboard)
 
         # 删除用户确认
         elif query.data.startswith("del_user:"):
-            await query.answer()
+            await safe_answer()
             author = query.data[9:]
             keyboard = InlineKeyboardMarkup([
                 [
@@ -461,7 +474,7 @@ class BotHandlers:
             await query.edit_message_text(f"确认删除用户「{author}」？", reply_markup=keyboard)
 
         elif query.data.startswith("confirm_user:"):
-            await query.answer()
+            await safe_answer()
             author = query.data[13:]
             if self.db.remove_user_subscription(chat_id, author, forum=self.forum_id):
                 self.cache.invalidate_authors()
@@ -470,7 +483,7 @@ class BotHandlers:
             await query.edit_message_text(text, reply_markup=keyboard)
 
         elif query.data == "cancel_user":
-            await query.answer()
+            await safe_answer()
             text, keyboard = self._build_user_list_message(chat_id)
             await query.edit_message_text(text, reply_markup=keyboard)
 
@@ -480,9 +493,9 @@ class BotHandlers:
             # 检查数量限制
             current_count = len(self.db.get_user_subscriptions(chat_id, forum=self.forum_id))
             if current_count >= MAX_KEYWORDS_PER_USER:
-                await query.answer(f"已达上限 {MAX_KEYWORDS_PER_USER} 个，请先删除", show_alert=True)
+                await safe_answer(f"已达上限 {MAX_KEYWORDS_PER_USER} 个，请先删除", show_alert=True)
                 return
-            await query.answer()
+            await safe_answer()
             if self.db.add_subscription(chat_id, keyword, forum=self.forum_id):
                 self.cache.invalidate_keywords()
                 self.cache.invalidate_subscribers(keyword)
@@ -495,9 +508,9 @@ class BotHandlers:
             # 检查数量限制
             current_count = self.db.get_user_subscription_count(chat_id, forum=self.forum_id)
             if current_count >= MAX_AUTHORS_PER_USER:
-                await query.answer(f"已达上限 {MAX_AUTHORS_PER_USER} 个，请先删除", show_alert=True)
+                await safe_answer(f"已达上限 {MAX_AUTHORS_PER_USER} 个，请先删除", show_alert=True)
                 return
-            await query.answer()
+            await safe_answer()
             if self.db.add_user_subscription(chat_id, author, forum=self.forum_id):
                 self.cache.invalidate_authors()
                 self.cache.invalidate_author_subscribers(author.lower())
