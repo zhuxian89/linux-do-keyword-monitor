@@ -77,11 +77,15 @@ class DiscourseSource(BaseSource):
         url = f"{self.base_url}/latest.json?order=created"
 
         if self.cf_bypass_mode == "drissionpage":
+            logger.info("[cf] 使用 DrissionPage 模式抓取 JSON")
             return self._fetch_via_drissionpage(url)
 
         # 优先使用 FlareSolverr
         if self.flaresolverr_url:
+            logger.info("[cf] 使用 FlareSolverr 模式抓取 JSON")
             return self._fetch_via_flaresolverr(url)
+
+        logger.info("[cf] 直接请求（无 CF 代理）抓取 JSON")
         return self._fetch_direct(url)
 
     def _get_or_create_session(self) -> Optional[str]:
@@ -180,6 +184,7 @@ class DiscourseSource(BaseSource):
 
                 response_text = extract_json_from_html(result["solution"]["response"])
                 data = json.loads(response_text)
+                logger.info(f"[cf] FlareSolverr 成功 (attempt {attempt}/{max_retries})")
                 return self._parse_response(data)
             except Exception as e:
                 last_error = e
@@ -290,6 +295,7 @@ class DiscourseSource(BaseSource):
                     from pyvirtualdisplay import Display
                     display = Display(visible=0, size=(1280, 800))
                     display.start()
+                    logger.info("[cf] DrissionPage 启动 Xvfb 虚拟显示")
                 except Exception as e:
                     logger.warning(f"Xvfb 启动失败: {e}")
                     if not os.environ.get("DISPLAY"):
@@ -348,7 +354,12 @@ class DiscourseSource(BaseSource):
             refreshed = self._extract_cookies_from_page(page)
             if refreshed:
                 self.cookie = refreshed
-                logger.info("DrissionPage Cookie 刷新成功（已更新内存 Cookie）")
+                cookie_dict = self._cookie_to_dict(refreshed)
+                logger.info(
+                    f"[cf] DrissionPage Cookie 刷新成功（_t: {'Y' if '_t' in cookie_dict else 'N'}, "
+                    f"_forum_session: {'Y' if '_forum_session' in cookie_dict else 'N'}, "
+                    f"cf_clearance: {'Y' if 'cf_clearance' in cookie_dict else 'N'}）"
+                )
                 return refreshed
             logger.warning("DrissionPage 未获取到有效 Cookie")
         except Exception as e:
