@@ -103,7 +103,8 @@ def create_source(config) -> BaseSource:
             cf_bypass_mode=forum_config.cf_bypass_mode.value if hasattr(forum_config.cf_bypass_mode, "value") else forum_config.cf_bypass_mode,
             drissionpage_headless=forum_config.drissionpage_headless,
             drissionpage_use_xvfb=forum_config.drissionpage_use_xvfb,
-            drissionpage_user_data_dir=forum_config.drissionpage_user_data_dir
+            drissionpage_user_data_dir=forum_config.drissionpage_user_data_dir,
+            forum_tag=forum_config.forum_id
         )
     else:
         return RSSSource(url=forum_config.rss_url)

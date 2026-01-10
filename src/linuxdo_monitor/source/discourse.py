@@ -41,6 +41,9 @@ class DiscourseSource(BaseSource):
     _flaresolverr_max_timeout_ms: int = 30000  # 30 秒
     _flaresolverr_request_timeout: int = 40  # 留出一点余量
     _flaresolverr_retry_sleep: int = 2
+    _direct_timeout: int = 10  # 直连超时
+    _direct_retries: int = 3
+    _direct_retry_sleep: int = 2
 
     def __init__(
         self,
@@ -53,10 +56,12 @@ class DiscourseSource(BaseSource):
         cf_bypass_mode: str = "flaresolverr_rss",
         drissionpage_headless: bool = True,
         drissionpage_use_xvfb: bool = True,
-        drissionpage_user_data_dir: Optional[str] = None
+        drissionpage_user_data_dir: Optional[str] = None,
+        forum_tag: Optional[str] = None
     ):
         # Remove trailing slash
         self.base_url = base_url.rstrip("/")
+        self.forum_tag = forum_tag or self.base_url
         self.cookie = cookie
         self.timeout = timeout
         self.user_agent = user_agent or self.DEFAULT_USER_AGENT
@@ -77,15 +82,14 @@ class DiscourseSource(BaseSource):
         url = f"{self.base_url}/latest.json?order=created"
 
         if self.cf_bypass_mode == "drissionpage":
-            logger.info(f"[cf][{self.base_url}] DrissionPage 模式，先直连一次再按需刷新 cf_clearance")
             return self._fetch_via_drissionpage(url)
 
         # 优先使用 FlareSolverr
         if self.flaresolverr_url:
-            logger.info(f"[cf][{self.base_url}] FlareSolverr 模式抓取 JSON")
+            logger.info(f"[{self.forum_tag}][cf] FlareSolverr 模式抓取 JSON")
             return self._fetch_via_flaresolverr(url)
 
-        logger.info(f"[cf][{self.base_url}] 直接请求（无 CF 代理）抓取 JSON")
+        logger.info(f"[{self.forum_tag}][cf] 直接请求（无 CF 代理）抓取 JSON")
         return self._fetch_direct(url)
 
     def _get_or_create_session(self) -> Optional[str]:
@@ -184,7 +188,7 @@ class DiscourseSource(BaseSource):
 
                 response_text = extract_json_from_html(result["solution"]["response"])
                 data = json.loads(response_text)
-                logger.info(f"[cf][{self.base_url}] FlareSolverr 成功 (attempt {attempt}/{max_retries})")
+                logger.info(f"[{self.forum_tag}][cf] FlareSolverr 成功 (attempt {attempt}/{max_retries})")
                 return self._parse_response(data)
             except Exception as e:
                 last_error = e
@@ -222,28 +226,40 @@ class DiscourseSource(BaseSource):
             "Referer": f"{self.base_url}/",
         }
 
-        try:
-            response = requests.get(
-                url,
-                headers=headers,
-                timeout=self.timeout,
-                impersonate="chrome131"
-            )
-            response.raise_for_status()
-            data = response.json()
-            return self._parse_response(data)
-        except Exception as e:
-            is_403 = "403" in str(e) or (hasattr(e, "response") and getattr(e, "response", None) and getattr(e.response, "status_code", None) == 403)
-            if is_403 and allow_refresh and self.cf_bypass_mode == "drissionpage":
-                logger.warning(f"[cf][{self.base_url}] 检测到 403，尝试 DrissionPage 刷新后重试一次")
-                refreshed_cookie = self._refresh_cookie_via_drissionpage()
-                if refreshed_cookie:
-                    return self._fetch_direct(url, allow_refresh=False)
-            if is_403:
-                logger.error(f"[cf][{self.base_url}] Cookie 可能已过期或被 Cloudflare 拦截，请更新或刷新 Cookie")
-            else:
-                logger.error(f"[cf][{self.base_url}] 请求失败: {e}")
-            raise
+        last_error = None
+        for attempt in range(1, self._direct_retries + 1):
+            try:
+                response = requests.get(
+                    url,
+                    headers=headers,
+                    timeout=self._direct_timeout,
+                    impersonate="chrome131"
+                )
+                response.raise_for_status()
+                data = response.json()
+                return self._parse_response(data)
+            except Exception as e:
+                last_error = e
+                is_403 = "403" in str(e) or (hasattr(e, "response") and getattr(e, "response", None) and getattr(e.response, "status_code", None) == 403)
+                is_timeout = "timed out" in str(e).lower() or "timeout" in str(e).lower()
+
+                if is_403 and allow_refresh and self.cf_bypass_mode == "drissionpage":
+                    logger.warning(f"[{self.forum_tag}][cf] 检测到 403，尝试 DrissionPage 刷新后重试一次")
+                    refreshed_cookie = self._refresh_cookie_via_drissionpage()
+                    if refreshed_cookie:
+                        return self._fetch_direct(url, allow_refresh=False)
+
+                if is_403:
+                    logger.error(f"[{self.forum_tag}][cf] Cookie 可能已过期或被 Cloudflare 拦截，请更新或刷新 Cookie")
+                elif is_timeout:
+                    logger.error(f"[{self.forum_tag}][cf] 请求超时（{self._direct_timeout}s），网络或对端限速：{e}")
+                else:
+                    logger.error(f"[{self.forum_tag}][cf] 请求失败: {e}")
+
+                if attempt < self._direct_retries and not is_403:
+                    time.sleep(self._direct_retry_sleep)
+                    continue
+                raise last_error
 
     def _fetch_via_drissionpage(self, url: str) -> List[Post]:
         """使用 DrissionPage 刷新 Cookie/CF，再请求 JSON（失败重试 3 次后再兜底）"""
@@ -251,15 +267,19 @@ class DiscourseSource(BaseSource):
 
         # 初次尝试直连
         try:
-            logger.info(f"[cf][{self.base_url}] DrissionPage 模式：首次直连（不刷新）")
+            logger.info(f"[{self.forum_tag}][cf] DrissionPage 模式：首次直连（不刷新）")
             return self._fetch_direct(url, allow_refresh=False)
         except Exception as e:
             last_error = e
-            logger.warning(f"直连请求失败，尝试 DrissionPage 刷新 Cookie: {e}")
+            is_403 = "403" in str(e) or (hasattr(e, "response") and getattr(e, "response", None) and getattr(e.response, "status_code", None) == 403)
+            if not is_403:
+                logger.warning(f"[{self.forum_tag}][cf] 直连失败但非 403（不刷新）：{e}")
+                raise
+            logger.warning(f"[{self.forum_tag}][cf] 直连 403，尝试 DrissionPage 刷新 Cookie: {e}")
 
         # DrissionPage 刷新最多 3 次
         for attempt in range(1, 4):
-            logger.info(f"[cf][{self.base_url}] DrissionPage 刷新尝试 {attempt}/3")
+            logger.info(f"[{self.forum_tag}][cf] DrissionPage 刷新尝试 {attempt}/3")
             refreshed_cookie = self._refresh_cookie_via_drissionpage()
             if not refreshed_cookie:
                 logger.warning(f"DrissionPage 刷新未获取到 Cookie (第 {attempt}/3 次)")
@@ -297,7 +317,7 @@ class DiscourseSource(BaseSource):
                     from pyvirtualdisplay import Display
                     display = Display(visible=0, size=(1280, 800))
                     display.start()
-                    logger.info(f"[cf][{self.base_url}] DrissionPage 启动 Xvfb 虚拟显示")
+                    logger.info(f"[{self.forum_tag}][cf] DrissionPage 启动 Xvfb 虚拟显示")
                 except Exception as e:
                     logger.warning(f"Xvfb 启动失败: {e}")
                     if not os.environ.get("DISPLAY"):
@@ -358,7 +378,7 @@ class DiscourseSource(BaseSource):
                 self.cookie = refreshed
                 cookie_dict = self._cookie_to_dict(refreshed)
                 logger.info(
-                    f"[cf][{self.base_url}] DrissionPage Cookie 刷新成功（_t: {'Y' if '_t' in cookie_dict else 'N'}, "
+                    f"[{self.forum_tag}][cf] DrissionPage Cookie 刷新成功（_t: {'Y' if '_t' in cookie_dict else 'N'}, "
                     f"_forum_session: {'Y' if '_forum_session' in cookie_dict else 'N'}, "
                     f"cf_clearance: {'Y' if 'cf_clearance' in cookie_dict else 'N'}）"
                 )
