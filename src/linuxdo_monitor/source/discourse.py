@@ -77,15 +77,15 @@ class DiscourseSource(BaseSource):
         url = f"{self.base_url}/latest.json?order=created"
 
         if self.cf_bypass_mode == "drissionpage":
-            logger.info("[cf] 使用 DrissionPage 模式抓取 JSON")
+            logger.info(f"[cf][{self.base_url}] DrissionPage 模式，先直连一次再按需刷新 cf_clearance")
             return self._fetch_via_drissionpage(url)
 
         # 优先使用 FlareSolverr
         if self.flaresolverr_url:
-            logger.info("[cf] 使用 FlareSolverr 模式抓取 JSON")
+            logger.info(f"[cf][{self.base_url}] FlareSolverr 模式抓取 JSON")
             return self._fetch_via_flaresolverr(url)
 
-        logger.info("[cf] 直接请求（无 CF 代理）抓取 JSON")
+        logger.info(f"[cf][{self.base_url}] 直接请求（无 CF 代理）抓取 JSON")
         return self._fetch_direct(url)
 
     def _get_or_create_session(self) -> Optional[str]:
@@ -184,7 +184,7 @@ class DiscourseSource(BaseSource):
 
                 response_text = extract_json_from_html(result["solution"]["response"])
                 data = json.loads(response_text)
-                logger.info(f"[cf] FlareSolverr 成功 (attempt {attempt}/{max_retries})")
+                logger.info(f"[cf][{self.base_url}] FlareSolverr 成功 (attempt {attempt}/{max_retries})")
                 return self._parse_response(data)
             except Exception as e:
                 last_error = e
@@ -235,14 +235,14 @@ class DiscourseSource(BaseSource):
         except Exception as e:
             is_403 = "403" in str(e) or (hasattr(e, "response") and getattr(e, "response", None) and getattr(e.response, "status_code", None) == 403)
             if is_403 and allow_refresh and self.cf_bypass_mode == "drissionpage":
-                logger.warning("检测到 403，尝试 DrissionPage 刷新后重试一次")
+                logger.warning(f"[cf][{self.base_url}] 检测到 403，尝试 DrissionPage 刷新后重试一次")
                 refreshed_cookie = self._refresh_cookie_via_drissionpage()
                 if refreshed_cookie:
                     return self._fetch_direct(url, allow_refresh=False)
             if is_403:
-                logger.error("Cookie 可能已过期或被 Cloudflare 拦截，请更新或刷新 Cookie")
+                logger.error(f"[cf][{self.base_url}] Cookie 可能已过期或被 Cloudflare 拦截，请更新或刷新 Cookie")
             else:
-                logger.error(f"请求失败: {e}")
+                logger.error(f"[cf][{self.base_url}] 请求失败: {e}")
             raise
 
     def _fetch_via_drissionpage(self, url: str) -> List[Post]:
@@ -251,6 +251,7 @@ class DiscourseSource(BaseSource):
 
         # 初次尝试直连
         try:
+            logger.info(f"[cf][{self.base_url}] DrissionPage 模式：首次直连（不刷新）")
             return self._fetch_direct(url, allow_refresh=False)
         except Exception as e:
             last_error = e
@@ -258,6 +259,7 @@ class DiscourseSource(BaseSource):
 
         # DrissionPage 刷新最多 3 次
         for attempt in range(1, 4):
+            logger.info(f"[cf][{self.base_url}] DrissionPage 刷新尝试 {attempt}/3")
             refreshed_cookie = self._refresh_cookie_via_drissionpage()
             if not refreshed_cookie:
                 logger.warning(f"DrissionPage 刷新未获取到 Cookie (第 {attempt}/3 次)")
@@ -295,7 +297,7 @@ class DiscourseSource(BaseSource):
                     from pyvirtualdisplay import Display
                     display = Display(visible=0, size=(1280, 800))
                     display.start()
-                    logger.info("[cf] DrissionPage 启动 Xvfb 虚拟显示")
+                    logger.info(f"[cf][{self.base_url}] DrissionPage 启动 Xvfb 虚拟显示")
                 except Exception as e:
                     logger.warning(f"Xvfb 启动失败: {e}")
                     if not os.environ.get("DISPLAY"):
@@ -355,11 +357,11 @@ class DiscourseSource(BaseSource):
             if refreshed:
                 self.cookie = refreshed
                 cookie_dict = self._cookie_to_dict(refreshed)
-                logger.info(
-                    f"[cf] DrissionPage Cookie 刷新成功（_t: {'Y' if '_t' in cookie_dict else 'N'}, "
-                    f"_forum_session: {'Y' if '_forum_session' in cookie_dict else 'N'}, "
-                    f"cf_clearance: {'Y' if 'cf_clearance' in cookie_dict else 'N'}）"
-                )
+                    logger.info(
+                        f"[cf][{self.base_url}] DrissionPage Cookie 刷新成功（_t: {'Y' if '_t' in cookie_dict else 'N'}, "
+                        f"_forum_session: {'Y' if '_forum_session' in cookie_dict else 'N'}, "
+                        f"cf_clearance: {'Y' if 'cf_clearance' in cookie_dict else 'N'}）"
+                    )
                 return refreshed
             logger.warning("DrissionPage 未获取到有效 Cookie")
         except Exception as e:
