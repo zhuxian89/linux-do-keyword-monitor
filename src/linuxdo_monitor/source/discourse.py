@@ -31,13 +31,13 @@ class DiscourseSource(BaseSource):
     DEFAULT_USER_AGENT = (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36"
+        "Chrome/142.0.0.0 Safari/537.36"
     )
 
-    # 类级别的 session ID，所有实例共享
-    _flaresolverr_session_id: Optional[str] = None
-    _session_created_at: float = 0
     _session_max_age: int = 1800  # session 最长存活 30 分钟
+    _flaresolverr_max_timeout_ms: int = 30000  # 30 秒
+    _flaresolverr_request_timeout: int = 40  # 留出一点余量
+    _flaresolverr_retry_sleep: int = 2
 
     def __init__(
         self,
@@ -53,6 +53,8 @@ class DiscourseSource(BaseSource):
         self.timeout = timeout
         self.user_agent = user_agent or self.DEFAULT_USER_AGENT
         self.flaresolverr_url = flaresolverr_url
+        self._flaresolverr_session_id: Optional[str] = None
+        self._session_created_at: float = 0
 
     def get_source_name(self) -> str:
         return "Discourse API"
@@ -71,9 +73,9 @@ class DiscourseSource(BaseSource):
         now = time.time()
 
         # 检查现有 session 是否过期
-        if (DiscourseSource._flaresolverr_session_id and
-            now - DiscourseSource._session_created_at < DiscourseSource._session_max_age):
-            return DiscourseSource._flaresolverr_session_id
+        if (self._flaresolverr_session_id and
+            now - self._session_created_at < self._session_max_age):
+            return self._flaresolverr_session_id
 
         # 创建新 session
         session_id = f"linuxdo_{uuid.uuid4().hex[:8]}"
@@ -86,8 +88,8 @@ class DiscourseSource(BaseSource):
             if resp.status_code == 200:
                 result = resp.json()
                 if result.get("status") == "ok":
-                    DiscourseSource._flaresolverr_session_id = session_id
-                    DiscourseSource._session_created_at = now
+                    self._flaresolverr_session_id = session_id
+                    self._session_created_at = now
                     logger.info(f"FlareSolverr session 创建成功: {session_id}")
                     return session_id
         except Exception as e:
@@ -97,23 +99,23 @@ class DiscourseSource(BaseSource):
 
     def _destroy_session(self):
         """销毁当前 session"""
-        if not DiscourseSource._flaresolverr_session_id:
+        if not self._flaresolverr_session_id:
             return
 
         try:
             std_requests.post(
                 f"{self.flaresolverr_url}/v1",
-                json={"cmd": "sessions.destroy", "session": DiscourseSource._flaresolverr_session_id},
+                json={"cmd": "sessions.destroy", "session": self._flaresolverr_session_id},
                 timeout=10
             )
-            logger.info(f"FlareSolverr session 已销毁: {DiscourseSource._flaresolverr_session_id}")
+            logger.info(f"FlareSolverr session 已销毁: {self._flaresolverr_session_id}")
         except Exception:
             pass
 
-        DiscourseSource._flaresolverr_session_id = None
-        DiscourseSource._session_created_at = 0
+        self._flaresolverr_session_id = None
+        self._session_created_at = 0
 
-    def _fetch_via_flaresolverr(self, url: str, max_retries: int = 3) -> List[Post]:
+    def _fetch_via_flaresolverr(self, url: str, max_retries: int = 2) -> List[Post]:
         """通过 FlareSolverr 获取数据，使用 session 模式"""
         # 获取或创建 session
         session_id = self._get_or_create_session()
@@ -121,7 +123,8 @@ class DiscourseSource(BaseSource):
         payload = {
             "cmd": "request.get",
             "url": url,
-            "maxTimeout": 90000,  # 90 秒
+            "maxTimeout": self._flaresolverr_max_timeout_ms,
+            "userAgent": self.user_agent,
         }
 
         # 使用 session
@@ -147,7 +150,7 @@ class DiscourseSource(BaseSource):
                 resp = std_requests.post(
                     f"{self.flaresolverr_url}/v1",
                     json=payload,
-                    timeout=120  # 比 maxTimeout 多留一些余量
+                    timeout=self._flaresolverr_request_timeout
                 )
                 resp.raise_for_status()
                 result = resp.json()
@@ -174,7 +177,7 @@ class DiscourseSource(BaseSource):
                         payload["session"] = session_id
 
                 if attempt < max_retries:
-                    time.sleep(3)
+                    time.sleep(self._flaresolverr_retry_sleep)
 
         # FlareSolverr 失败，尝试 curl_cffi 直接请求
         logger.warning(f"FlareSolverr 失败，尝试 curl_cffi 直接请求...")
