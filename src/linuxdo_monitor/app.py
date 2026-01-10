@@ -98,7 +98,8 @@ def create_source(config) -> BaseSource:
         return DiscourseSource(
             base_url=forum_config.discourse_url,
             cookie=forum_config.discourse_cookie,
-            flaresolverr_url=forum_config.flaresolverr_url
+            flaresolverr_url=forum_config.flaresolverr_url,
+            rss_url=forum_config.rss_url
         )
     else:
         return RSSSource(url=forum_config.rss_url)

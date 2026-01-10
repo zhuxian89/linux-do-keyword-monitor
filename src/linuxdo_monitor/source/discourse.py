@@ -10,6 +10,7 @@ import requests as std_requests
 from curl_cffi import requests
 
 from ..models import Post
+from .rss import RSSSource
 from .base import BaseSource
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,8 @@ class DiscourseSource(BaseSource):
         cookie: str,
         timeout: int = 30,
         user_agent: Optional[str] = None,
-        flaresolverr_url: Optional[str] = None
+        flaresolverr_url: Optional[str] = None,
+        rss_url: Optional[str] = None
     ):
         # Remove trailing slash
         self.base_url = base_url.rstrip("/")
@@ -53,6 +55,7 @@ class DiscourseSource(BaseSource):
         self.timeout = timeout
         self.user_agent = user_agent or self.DEFAULT_USER_AGENT
         self.flaresolverr_url = flaresolverr_url
+        self.rss_url = rss_url
         self._flaresolverr_session_id: Optional[str] = None
         self._session_created_at: float = 0
 
@@ -115,7 +118,7 @@ class DiscourseSource(BaseSource):
         self._flaresolverr_session_id = None
         self._session_created_at = 0
 
-    def _fetch_via_flaresolverr(self, url: str, max_retries: int = 2) -> List[Post]:
+    def _fetch_via_flaresolverr(self, url: str, max_retries: int = 3) -> List[Post]:
         """通过 FlareSolverr 获取数据，使用 session 模式"""
         # 获取或创建 session
         session_id = self._get_or_create_session()
@@ -179,13 +182,13 @@ class DiscourseSource(BaseSource):
                 if attempt < max_retries:
                     time.sleep(self._flaresolverr_retry_sleep)
 
-        # FlareSolverr 失败，尝试 curl_cffi 直接请求
-        logger.warning(f"FlareSolverr 失败，尝试 curl_cffi 直接请求...")
+        # FlareSolverr 失败，尝试 RSS 兜底
+        logger.warning("FlareSolverr 失败，尝试 RSS 兜底...")
         try:
-            return self._fetch_direct(url)
+            rss_url = self.rss_url or f"{self.base_url}/latest.rss"
+            return RSSSource(url=rss_url, timeout=self.timeout).fetch()
         except Exception as e:
-            logger.error(f"curl_cffi 也失败了: {e}")
-            # 返回 FlareSolverr 的错误
+            logger.error(f"RSS 兜底也失败了: {e}")
             raise last_error
 
     def _fetch_direct(self, url: str) -> List[Post]:
