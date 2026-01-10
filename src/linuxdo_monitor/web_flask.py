@@ -385,6 +385,17 @@ class ConfigWebServer:
             flaresolverr_url = request.form.get('flaresolverr_url', '').strip()
             target['flaresolverr_url'] = flaresolverr_url if flaresolverr_url else None
 
+            target['cf_bypass_mode'] = request.form.get('cf_bypass_mode', 'flaresolverr_rss')
+
+            headless_raw = request.form.get('drissionpage_headless', 'true').strip().lower()
+            target['drissionpage_headless'] = headless_raw in ('1', 'true', 'yes', 'on')
+
+            use_xvfb_raw = request.form.get('drissionpage_use_xvfb', 'true').strip().lower()
+            target['drissionpage_use_xvfb'] = use_xvfb_raw in ('1', 'true', 'yes', 'on')
+
+            user_data_dir = request.form.get('drissionpage_user_data_dir', '').strip()
+            target['drissionpage_user_data_dir'] = user_data_dir or None
+
             try:
                 target['cookie_check_interval'] = int(request.form.get('cookie_check_interval', 300))
             except ValueError:

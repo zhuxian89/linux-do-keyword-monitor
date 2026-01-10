@@ -278,6 +278,37 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         </div>
 
         <div class="field">
+            <label>CF 绕过模式</label>
+            <select name="cf_bypass_mode">
+                <option value="flaresolverr_rss" {"selected" if config.get("cf_bypass_mode", "flaresolverr_rss") == "flaresolverr_rss" else ""}>FlareSolverr → RSS 兜底</option>
+                <option value="drissionpage" {"selected" if config.get("cf_bypass_mode") == "drissionpage" else ""}>DrissionPage + JSON/requests</option>
+            </select>
+            <small>DrissionPage 需要单独安装；失败时会自动回退 RSS</small>
+        </div>
+
+        <div class="field">
+            <label>DrissionPage 无头模式</label>
+            <select name="drissionpage_headless">
+                <option value="true" {"selected" if config.get("drissionpage_headless", True) else ""}>开启（推荐）</option>
+                <option value="false" {"selected" if config.get("drissionpage_headless", True) is False else ""}>关闭（更拟人，需桌面环境）</option>
+            </select>
+        </div>
+
+        <div class="field">
+            <label>DrissionPage 使用 Xvfb</label>
+            <select name="drissionpage_use_xvfb">
+                <option value="true" {"selected" if config.get("drissionpage_use_xvfb", True) else ""}>是（服务器推荐）</option>
+                <option value="false" {"selected" if config.get("drissionpage_use_xvfb", True) is False else ""}>否（需有真实 DISPLAY）</option>
+            </select>
+        </div>
+
+        <div class="field">
+            <label>DrissionPage Profile 目录（可选）</label>
+            <input type="text" name="drissionpage_user_data_dir" value="{config.get('drissionpage_user_data_dir', '') or ''}" placeholder="/path/to/profile">
+            <small>用于复用浏览器配置和缓存，不填则使用临时配置</small>
+        </div>
+
+        <div class="field">
             <label>拉取间隔 (秒)</label>
             <input type="number" name="fetch_interval" value="{config.get('fetch_interval', 60)}">
         </div>
@@ -597,6 +628,18 @@ class ConfigWebHandler(BaseHTTPRequestHandler):
         if "flaresolverr_url" in params:
             url = params["flaresolverr_url"][0].strip()
             config["flaresolverr_url"] = url if url else None
+        if "cf_bypass_mode" in params:
+            mode = params["cf_bypass_mode"][0].strip()
+            config["cf_bypass_mode"] = mode if mode else "flaresolverr_rss"
+        if "drissionpage_headless" in params:
+            raw = params["drissionpage_headless"][0].strip().lower()
+            config["drissionpage_headless"] = raw in ("1", "true", "yes", "on")
+        if "drissionpage_use_xvfb" in params:
+            raw = params["drissionpage_use_xvfb"][0].strip().lower()
+            config["drissionpage_use_xvfb"] = raw in ("1", "true", "yes", "on")
+        if "drissionpage_user_data_dir" in params:
+            value = params["drissionpage_user_data_dir"][0].strip()
+            config["drissionpage_user_data_dir"] = value if value else None
         if "cookie_check_interval" in params:
             try:
                 config["cookie_check_interval"] = int(params["cookie_check_interval"][0])

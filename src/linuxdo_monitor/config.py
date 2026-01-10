@@ -12,6 +12,12 @@ class SourceType(str, Enum):
     DISCOURSE = "discourse"
 
 
+class CfBypassMode(str, Enum):
+    """Cloudflare bypass mode for Discourse"""
+    FLARESOLVERR_RSS = "flaresolverr_rss"
+    DRISSIONPAGE = "drissionpage"
+
+
 class ForumConfig(BaseModel):
     """Single forum configuration"""
     forum_id: str = Field(description="Unique forum identifier (e.g. 'linux-do', 'nodeseek')")
@@ -43,6 +49,26 @@ class ForumConfig(BaseModel):
     flaresolverr_url: Optional[str] = Field(
         default=None,
         description="FlareSolverr URL for bypassing Cloudflare"
+    )
+
+    cf_bypass_mode: CfBypassMode = Field(
+        default=CfBypassMode.FLARESOLVERR_RSS,
+        description="Cloudflare bypass mode for Discourse"
+    )
+
+    drissionpage_headless: bool = Field(
+        default=True,
+        description="Use headless mode for DrissionPage"
+    )
+
+    drissionpage_use_xvfb: bool = Field(
+        default=True,
+        description="Use Xvfb for DrissionPage when running headful on servers"
+    )
+
+    drissionpage_user_data_dir: Optional[str] = Field(
+        default=None,
+        description="User data directory for DrissionPage profile"
     )
 
     cookie_check_interval: int = Field(
@@ -94,6 +120,10 @@ class AppConfig(BaseModel):
     discourse_url: Optional[str] = Field(default=None, description="Legacy: Discourse base URL")
     discourse_cookie: Optional[str] = Field(default=None, description="Legacy: Discourse cookie")
     flaresolverr_url: Optional[str] = Field(default=None, description="Legacy: FlareSolverr URL")
+    cf_bypass_mode: Optional[CfBypassMode] = Field(default=None, description="Legacy: Cloudflare bypass mode")
+    drissionpage_headless: Optional[bool] = Field(default=None, description="Legacy: DrissionPage headless")
+    drissionpage_use_xvfb: Optional[bool] = Field(default=None, description="Legacy: DrissionPage use Xvfb")
+    drissionpage_user_data_dir: Optional[str] = Field(default=None, description="Legacy: DrissionPage user data dir")
     cookie_check_interval: Optional[int] = Field(default=None, description="Legacy: Cookie check interval")
     fetch_interval: Optional[int] = Field(default=None, description="Legacy: Fetch interval")
 
@@ -111,6 +141,10 @@ class AppConfig(BaseModel):
                 discourse_url=self.discourse_url or "https://linux.do",
                 discourse_cookie=self.discourse_cookie,
                 flaresolverr_url=self.flaresolverr_url,
+                cf_bypass_mode=self.cf_bypass_mode or CfBypassMode.FLARESOLVERR_RSS,
+                drissionpage_headless=True if self.drissionpage_headless is None else self.drissionpage_headless,
+                drissionpage_use_xvfb=True if self.drissionpage_use_xvfb is None else self.drissionpage_use_xvfb,
+                drissionpage_user_data_dir=self.drissionpage_user_data_dir,
                 cookie_check_interval=self.cookie_check_interval or 300,
                 fetch_interval=self.fetch_interval or 60,
                 enabled=True,

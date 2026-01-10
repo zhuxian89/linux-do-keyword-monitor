@@ -1,10 +1,12 @@
 import json
 import logging
+import os
 import re
 import time
 import uuid
 from datetime import datetime
 from typing import List, Optional
+from urllib.parse import urlparse
 
 import requests as std_requests
 from curl_cffi import requests
@@ -47,7 +49,11 @@ class DiscourseSource(BaseSource):
         timeout: int = 30,
         user_agent: Optional[str] = None,
         flaresolverr_url: Optional[str] = None,
-        rss_url: Optional[str] = None
+        rss_url: Optional[str] = None,
+        cf_bypass_mode: str = "flaresolverr_rss",
+        drissionpage_headless: bool = True,
+        drissionpage_use_xvfb: bool = True,
+        drissionpage_user_data_dir: Optional[str] = None
     ):
         # Remove trailing slash
         self.base_url = base_url.rstrip("/")
@@ -56,6 +62,10 @@ class DiscourseSource(BaseSource):
         self.user_agent = user_agent or self.DEFAULT_USER_AGENT
         self.flaresolverr_url = flaresolverr_url
         self.rss_url = rss_url
+        self.cf_bypass_mode = cf_bypass_mode.value if hasattr(cf_bypass_mode, "value") else cf_bypass_mode
+        self.drissionpage_headless = drissionpage_headless
+        self.drissionpage_use_xvfb = drissionpage_use_xvfb
+        self.drissionpage_user_data_dir = drissionpage_user_data_dir
         self._flaresolverr_session_id: Optional[str] = None
         self._session_created_at: float = 0
 
@@ -65,6 +75,9 @@ class DiscourseSource(BaseSource):
     def fetch(self) -> List[Post]:
         """Fetch posts from Discourse JSON API"""
         url = f"{self.base_url}/latest.json?order=created"
+
+        if self.cf_bypass_mode == "drissionpage":
+            return self._fetch_via_drissionpage(url)
 
         # 优先使用 FlareSolverr
         if self.flaresolverr_url:
@@ -191,8 +204,11 @@ class DiscourseSource(BaseSource):
             logger.error(f"RSS 兜底也失败了: {e}")
             raise last_error
 
-    def _fetch_direct(self, url: str) -> List[Post]:
-        """直接请求（需要有效的 cf_clearance）"""
+    def _fetch_direct(self, url: str, *, allow_refresh: bool = True) -> List[Post]:
+        """直接请求（需要有效的 cf_clearance）
+
+        allow_refresh: 是否在 403 时尝试 DrissionPage 刷新一次
+        """
         headers = {
             "User-Agent": self.user_agent,
             "Cookie": self.cookie,
@@ -212,11 +228,260 @@ class DiscourseSource(BaseSource):
             data = response.json()
             return self._parse_response(data)
         except Exception as e:
-            if "403" in str(e):
-                logger.error("Cookie 可能已过期或被 Cloudflare 拦截，请更新 Cookie")
+            is_403 = "403" in str(e) or (hasattr(e, "response") and getattr(e, "response", None) and getattr(e.response, "status_code", None) == 403)
+            if is_403 and allow_refresh and self.cf_bypass_mode == "drissionpage":
+                logger.warning("检测到 403，尝试 DrissionPage 刷新后重试一次")
+                refreshed_cookie = self._refresh_cookie_via_drissionpage()
+                if refreshed_cookie:
+                    return self._fetch_direct(url, allow_refresh=False)
+            if is_403:
+                logger.error("Cookie 可能已过期或被 Cloudflare 拦截，请更新或刷新 Cookie")
             else:
                 logger.error(f"请求失败: {e}")
             raise
+
+    def _fetch_via_drissionpage(self, url: str) -> List[Post]:
+        """使用 DrissionPage 刷新 Cookie/CF，再请求 JSON（失败重试 3 次后再兜底）"""
+        last_error = None
+
+        # 初次尝试直连
+        try:
+            return self._fetch_direct(url, allow_refresh=False)
+        except Exception as e:
+            last_error = e
+            logger.warning(f"直连请求失败，尝试 DrissionPage 刷新 Cookie: {e}")
+
+        # DrissionPage 刷新最多 3 次
+        for attempt in range(1, 4):
+            refreshed_cookie = self._refresh_cookie_via_drissionpage()
+            if not refreshed_cookie:
+                logger.warning(f"DrissionPage 刷新未获取到 Cookie (第 {attempt}/3 次)")
+                continue
+
+            try:
+                return self._fetch_direct(url, allow_refresh=False)
+            except Exception as e:
+                last_error = e
+                logger.warning(f"DrissionPage 刷新后仍失败 (第 {attempt}/3 次): {e}")
+
+        logger.warning("DrissionPage 连续 3 次失败，尝试 RSS 兜底...")
+        try:
+            rss_url = self.rss_url or f"{self.base_url}/latest.rss"
+            return RSSSource(url=rss_url, timeout=self.timeout).fetch()
+        except Exception as e:
+            logger.error(f"RSS 兜底也失败了: {e}")
+            if last_error:
+                raise last_error
+            raise
+
+    def _refresh_cookie_via_drissionpage(self) -> Optional[str]:
+        """用 DrissionPage 刷新 Cookie/CF clearance（仅内存更新）"""
+        try:
+            from DrissionPage import ChromiumOptions, ChromiumPage
+        except Exception as e:
+            logger.warning(f"DrissionPage 未安装或不可用: {e}")
+            return None
+
+        display = None
+        if not self.drissionpage_headless:
+            need_xvfb = self.drissionpage_use_xvfb or not os.environ.get("DISPLAY")
+            if need_xvfb:
+                try:
+                    from pyvirtualdisplay import Display
+                    display = Display(visible=0, size=(1280, 800))
+                    display.start()
+                except Exception as e:
+                    logger.warning(f"Xvfb 启动失败: {e}")
+                    if not os.environ.get("DISPLAY"):
+                        return None
+
+        options = ChromiumOptions()
+        if self.drissionpage_headless:
+            try:
+                options.headless(True)
+            except Exception:
+                try:
+                    options.set_headless(True)
+                except Exception:
+                    options.set_argument("--headless=new")
+
+        try:
+            options.set_argument("--no-sandbox")
+            options.set_argument("--disable-dev-shm-usage")
+            options.set_argument("--disable-gpu")
+            options.set_argument("--disable-blink-features=AutomationControlled")
+            options.set_argument("--window-size=1280,800")
+        except Exception:
+            pass
+
+        try:
+            options.set_argument(f"--user-agent={self.user_agent}")
+        except Exception:
+            pass
+
+        if self.drissionpage_user_data_dir:
+            try:
+                options.set_user_data_dir(self.drissionpage_user_data_dir)
+            except Exception:
+                try:
+                    options.set_user_data_path(self.drissionpage_user_data_dir)
+                except Exception:
+                    logger.warning("DrissionPage 用户数据目录设置失败，使用默认配置")
+
+        page = ChromiumPage(options)
+        try:
+            cookie_dict = self._cookie_to_dict(self.cookie)
+            if cookie_dict:
+                self._apply_cookies_to_page(page, cookie_dict)
+
+            page.get(self.base_url)
+            time.sleep(2)
+            page.get(f"{self.base_url}/latest.json?order=created")
+            time.sleep(2)
+
+            self._sync_user_agent_from_page(page)
+
+            if not self._wait_for_cf_clearance(page, timeout=10):
+                logger.warning("DrissionPage 未获取到 cf_clearance")
+                return None
+
+            refreshed = self._extract_cookies_from_page(page)
+            if refreshed:
+                self.cookie = refreshed
+                logger.info("DrissionPage Cookie 刷新成功（已更新内存 Cookie）")
+                return refreshed
+            logger.warning("DrissionPage 未获取到有效 Cookie")
+        except Exception as e:
+            logger.warning(f"DrissionPage 刷新失败: {e}")
+        finally:
+            self._close_drissionpage(page)
+            if display:
+                display.stop()
+
+        return None
+
+    def _apply_cookies_to_page(self, page, cookie_dict: dict) -> None:
+        """尽量把 Cookie 写入 DrissionPage"""
+        domain = urlparse(self.base_url).hostname or ""
+        cookie_list = []
+        for k, v in cookie_dict.items():
+            item = {"name": k, "value": v}
+            if domain:
+                item["domain"] = domain
+            cookie_list.append(item)
+
+        if hasattr(page, "set") and hasattr(page.set, "cookies"):
+            try:
+                page.set.cookies(cookie_list)
+                return
+            except Exception:
+                try:
+                    page.set.cookies(cookie_dict)
+                    return
+                except Exception:
+                    pass
+
+        if hasattr(page, "set_cookies"):
+            try:
+                page.set_cookies(cookie_list)
+                return
+            except Exception:
+                try:
+                    page.set_cookies(cookie_dict)
+                    return
+                except Exception:
+                    pass
+
+    def _extract_cookies_from_page(self, page) -> Optional[str]:
+        """从 DrissionPage 中提取 Cookie 字符串"""
+        cookie_dict = self._extract_cookie_dict_from_page(page)
+        if cookie_dict:
+            return self._cookie_dict_to_str(cookie_dict)
+
+        cookies = None
+        if hasattr(page, "cookies"):
+            cookies = page.cookies() if callable(page.cookies) else page.cookies
+        if isinstance(cookies, str):
+            return cookies
+        return None
+
+    def _extract_cookie_dict_from_page(self, page) -> dict:
+        """从 DrissionPage 中提取 Cookie dict"""
+        cookies = None
+        if hasattr(page, "cookies"):
+            cookies = page.cookies() if callable(page.cookies) else page.cookies
+        if not cookies:
+            return {}
+
+        if isinstance(cookies, dict):
+            return cookies
+        if isinstance(cookies, list):
+            cookie_dict = {}
+            for item in cookies:
+                if isinstance(item, dict) and "name" in item and "value" in item:
+                    cookie_dict[item["name"]] = item["value"]
+            return cookie_dict
+        return {}
+
+    def _wait_for_cf_clearance(self, page, timeout: int = 10) -> bool:
+        """等待 cf_clearance 出现"""
+        end = time.time() + timeout
+        while time.time() < end:
+            cookie_dict = self._extract_cookie_dict_from_page(page)
+            if cookie_dict.get("cf_clearance"):
+                return True
+            time.sleep(1)
+        return False
+
+    def _sync_user_agent_from_page(self, page) -> None:
+        """尝试从 DrissionPage 同步 UA"""
+        ua = None
+        if hasattr(page, "user_agent"):
+            try:
+                ua = page.user_agent
+            except Exception:
+                pass
+        if not ua and hasattr(page, "run_js"):
+            try:
+                ua = page.run_js("return navigator.userAgent")
+            except Exception:
+                pass
+        if ua:
+            self.user_agent = ua
+
+    def _cookie_to_dict(self, cookie: str) -> dict:
+        """将 Cookie 字符串解析为 dict"""
+        cookie_dict = {}
+        if not cookie:
+            return cookie_dict
+        normalized = cookie.replace("\r\n", ";").replace("\n", ";").replace(";;", ";")
+        for item in normalized.split(";"):
+            item = item.strip()
+            if "=" in item:
+                k, v = item.split("=", 1)
+                cookie_dict[k.strip()] = v
+        return cookie_dict
+
+    def _cookie_dict_to_str(self, cookie_dict: dict) -> str:
+        """将 Cookie dict 还原为字符串"""
+        return "; ".join(f"{k}={v}" for k, v in cookie_dict.items())
+
+    def _close_drissionpage(self, page) -> None:
+        """尽量关闭 DrissionPage"""
+        try:
+            page.quit()
+            return
+        except Exception:
+            pass
+        try:
+            page.close()
+            return
+        except Exception:
+            pass
+        try:
+            page.browser.close()
+        except Exception:
+            pass
 
     def _parse_response(self, data: dict) -> List[Post]:
         """Parse Discourse JSON response"""

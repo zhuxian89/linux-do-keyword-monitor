@@ -128,6 +128,53 @@
                         <div id="test-result" class="mt-2" style="display: none;"></div>
                     </div>
 
+                    <!-- CF 绕过模式 -->
+                    <div class="mb-3">
+                        <label class="form-label">CF 绕过模式</label>
+                        <select class="form-select" name="cf_bypass_mode">
+                            <option value="flaresolverr_rss" {% if (forum_config.cf_bypass_mode or 'flaresolverr_rss') == 'flaresolverr_rss' %}selected{% endif %}>
+                                FlareSolverr → RSS 兜底
+                            </option>
+                            <option value="drissionpage" {% if forum_config.cf_bypass_mode == 'drissionpage' %}selected{% endif %}>
+                                DrissionPage + JSON/requests
+                            </option>
+                        </select>
+                        <div class="form-text">DrissionPage 需要单独安装；失败时会自动回退 RSS</div>
+                    </div>
+
+                    <!-- DrissionPage 配置 -->
+                    <div class="mb-3">
+                        <label class="form-label">DrissionPage 无头模式</label>
+                        <select class="form-select" name="drissionpage_headless">
+                            <option value="true" {% if forum_config.drissionpage_headless is not defined or forum_config.drissionpage_headless %}selected{% endif %}>
+                                开启（推荐）
+                            </option>
+                            <option value="false" {% if forum_config.drissionpage_headless is defined and not forum_config.drissionpage_headless %}selected{% endif %}>
+                                关闭（更拟人，需桌面环境）
+                            </option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">DrissionPage 使用 Xvfb</label>
+                        <select class="form-select" name="drissionpage_use_xvfb">
+                            <option value="true" {% if forum_config.drissionpage_use_xvfb is not defined or forum_config.drissionpage_use_xvfb %}selected{% endif %}>
+                                是（服务器推荐）
+                            </option>
+                            <option value="false" {% if forum_config.drissionpage_use_xvfb is defined and not forum_config.drissionpage_use_xvfb %}selected{% endif %}>
+                                否（有真实 DISPLAY）
+                            </option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">DrissionPage Profile 目录（可选）</label>
+                        <input type="text" class="form-control" name="drissionpage_user_data_dir"
+                               value="{{ forum_config.drissionpage_user_data_dir or '' }}"
+                               placeholder="/path/to/profile">
+                        <div class="form-text">用于复用浏览器配置和缓存，不填则使用临时配置</div>
+                    </div>
+
                     <!-- 拉取间隔 -->
                     <div class="mb-3">
                         <label class="form-label">拉取间隔 (秒)</label>
