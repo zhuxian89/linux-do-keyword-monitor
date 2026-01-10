@@ -42,7 +42,7 @@ class DiscourseSource(BaseSource):
     _flaresolverr_request_timeout: int = 40  # 留出一点余量
     _flaresolverr_retry_sleep: int = 2
     _direct_timeout: int = 10  # 直连超时
-    _direct_retries: int = 3
+    _direct_retries: int = 5
     _direct_retry_sleep: int = 2
 
     def __init__(
@@ -73,6 +73,7 @@ class DiscourseSource(BaseSource):
         self.drissionpage_user_data_dir = drissionpage_user_data_dir
         self._flaresolverr_session_id: Optional[str] = None
         self._session_created_at: float = 0
+        self._direct_fail_streak: int = 0
 
     def get_source_name(self) -> str:
         return "Discourse API"
@@ -237,6 +238,7 @@ class DiscourseSource(BaseSource):
                 )
                 response.raise_for_status()
                 data = response.json()
+                self._direct_fail_streak = 0
                 return self._parse_response(data)
             except Exception as e:
                 last_error = e
@@ -256,9 +258,23 @@ class DiscourseSource(BaseSource):
                 else:
                     logger.error(f"[{self.forum_tag}][cf] 请求失败: {e}")
 
+                # 非 403 失败计数，用于跨轮询触发一次刷新
+                if not is_403:
+                    self._direct_fail_streak += 1
+
                 if attempt < self._direct_retries and not is_403:
                     time.sleep(self._direct_retry_sleep)
                     continue
+
+                # 连续多次直连失败后，尝试刷新一次（仅 DrissionPage 模式）
+                if (not is_403 and allow_refresh and self.cf_bypass_mode == "drissionpage"
+                        and self._direct_fail_streak >= 5):
+                    logger.warning(f"[{self.forum_tag}][cf] 连续 {self._direct_fail_streak} 次直连失败，尝试 DrissionPage 刷新一次")
+                    refreshed_cookie = self._refresh_cookie_via_drissionpage()
+                    if refreshed_cookie:
+                        self._direct_fail_streak = 0
+                        return self._fetch_direct(url, allow_refresh=False)
+
                 raise last_error
 
     def _fetch_via_drissionpage(self, url: str) -> List[Post]:
