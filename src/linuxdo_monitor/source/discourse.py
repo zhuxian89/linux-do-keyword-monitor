@@ -254,7 +254,10 @@ class DiscourseSource(BaseSource):
                 if is_403:
                     logger.error(f"[{self.forum_tag}][cf] Cookie 可能已过期或被 Cloudflare 拦截，请更新或刷新 Cookie")
                 elif is_timeout:
-                    logger.error(f"[{self.forum_tag}][cf] 请求超时（{self._direct_timeout}s），网络或对端限速：{e}")
+                    if attempt < self._direct_retries:
+                        logger.warning(f"[{self.forum_tag}][cf] 直连超时（{self._direct_timeout}s），将重试 {attempt}/{self._direct_retries}")
+                    else:
+                        logger.error(f"[{self.forum_tag}][cf] 直连超时（{self._direct_timeout}s），已达重试上限")
                 else:
                     logger.error(f"[{self.forum_tag}][cf] 请求失败: {e}")
 
