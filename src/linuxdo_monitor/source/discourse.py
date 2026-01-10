@@ -357,11 +357,11 @@ class DiscourseSource(BaseSource):
             if refreshed:
                 self.cookie = refreshed
                 cookie_dict = self._cookie_to_dict(refreshed)
-                    logger.info(
-                        f"[cf][{self.base_url}] DrissionPage Cookie 刷新成功（_t: {'Y' if '_t' in cookie_dict else 'N'}, "
-                        f"_forum_session: {'Y' if '_forum_session' in cookie_dict else 'N'}, "
-                        f"cf_clearance: {'Y' if 'cf_clearance' in cookie_dict else 'N'}）"
-                    )
+                logger.info(
+                    f"[cf][{self.base_url}] DrissionPage Cookie 刷新成功（_t: {'Y' if '_t' in cookie_dict else 'N'}, "
+                    f"_forum_session: {'Y' if '_forum_session' in cookie_dict else 'N'}, "
+                    f"cf_clearance: {'Y' if 'cf_clearance' in cookie_dict else 'N'}）"
+                )
                 return refreshed
             logger.warning("DrissionPage 未获取到有效 Cookie")
         except Exception as e:
